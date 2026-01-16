@@ -15,13 +15,18 @@
         "panel"
     ],
     "dependencies": {
+        "@google/generative-ai": "^0.24.1",
         "@huggingface/inference": "^2.6.4",
         "@swc-react/button": "1.7.0",
         "@swc-react/theme": "1.7.0",
         "axios": "^1.6.5",
+        "cors": "^2.8.5",
         "date-fns": "^3.0.6",
+        "dotenv": "^17.2.3",
+        "express": "^5.2.1",
         "imghash": "^1.0.0",
         "jspdf": "^2.5.1",
+        "multer": "^2.0.2",
         "pdfjs-dist": "^4.0.379",
         "react": "18.2.0",
         "react-dom": "18.2.0",
