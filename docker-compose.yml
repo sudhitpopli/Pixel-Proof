@@ -1,0 +1,47 @@
+services:
+  backend:
+    build: ./server
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./server:/app
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: always
+
+  ollama-init:
+    image: ollama/ollama:latest
+    volumes:
+      - ./server/Modelfile:/Modelfile
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        echo "Waiting for Ollama service to start..."
+        while ! ollama list > /dev/null 2>&1; do
+          sleep 1
+        done
+        echo "Ollama is ready."
+        
+        echo "Pulling base model qwen2.5:7b..."
+        ollama pull qwen2.5:7b
+        
+        echo "Creating custom model pixel-proof-safety..."
+        ollama create pixel-proof-safety -f /Modelfile
+        
+        echo "Model created successfully!"
+
+volumes:
+  ollama_data:

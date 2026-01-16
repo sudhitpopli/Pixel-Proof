@@ -52,6 +52,8 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [mlResults, setMlResults] = useState<any>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [mlError, setMlError] = useState<string | null>(null);
+    const [claimResult, setClaimResult] = useState<any>(null);
+    const [isAnalyzingClaims, setIsAnalyzingClaims] = useState(false);
 
     const handleExtractText = async () => {
         setIsExtracting(true);
@@ -241,6 +243,51 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             setMlError(err instanceof Error ? err.message : String(err));
         } finally {
             setIsAnalyzing(false);
+        }
+    };
+
+    const handleAnalyzeClaims = async () => {
+        if (!mlConfigured) {
+            setMlError('Please configure your Hugging Face API key first');
+            return;
+        }
+
+        if (!extractedText.length && !crawlResult) {
+            setMlError('Please extract text or crawl a website first');
+            return;
+        }
+
+        // prioritize extracted text
+        const textToAnalyze = extractedText.length > 0 ? extractedText.join(' \n ') : (crawlResult?.text?.fullText || '');
+
+        if (!textToAnalyze.trim()) {
+            setMlError('No text content validation to analyze');
+            return;
+        }
+
+        setIsAnalyzingClaims(true);
+        setMlError(null);
+        setClaimResult(null);
+
+        try {
+            console.log('Analyzing text for implicit claims...');
+            // We use the first 500 characters for the demo to avoid token limits on free tier
+            // In prod, you'd batch this.
+            const textSample = textToAnalyze.substring(0, 1000);
+
+            const result = await sandboxProxy.analyzeImplicitClaims(textSample);
+            console.log('Claim Analysis Result:', result);
+
+            if (result.success) {
+                setClaimResult(result);
+            } else {
+                setMlError(result.error);
+            }
+        } catch (err) {
+            console.error('Claim Analysis failed:', err);
+            setMlError(String(err));
+        } finally {
+            setIsAnalyzingClaims(false);
         }
     };
 
@@ -736,6 +783,66 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                 </Button>
                             )}
                         </div>
+
+                        {/* Implicit Claim Analysis (New) */}
+                        <div style={{ marginTop: "20px", borderTop: "1px dashed #ccc", paddingTop: "15px" }}>
+                            <h4 style={{ margin: "0 0 10px 0" }}>📢 Marketing Claim Detection (Zero-Shot)</h4>
+                            <p style={{ fontSize: "12px", color: "#666", marginBottom: "10px" }}>
+                                Detects exaggerated claims, marketing fluff, or subjective opinions using BART.
+                            </p>
+                            <Button
+                                size="m"
+                                onClick={handleAnalyzeClaims}
+                                disabled={!mlConfigured || isAnalyzingClaims}
+                                variant="secondary"
+                                style={{ width: "100%" }}
+                            >
+                                {isAnalyzingClaims ? "Thinking..." : "🧐 Analyze for Implicit Claims"}
+                            </Button>
+                        </div>
+
+                        {/* Claim Results Display */}
+                        {claimResult && (
+                            <div style={{ marginTop: "25px", border: "1px solid #2196f3", borderRadius: "6px", padding: "15px", backgroundColor: "#e3f2fd" }}>
+                                <h3 style={{ color: "#0d47a1", marginTop: 0 }}>🧐 Claim Analysis Result</h3>
+
+                                <div style={{ marginBottom: "15px" }}>
+                                    <span style={{
+                                        padding: "4px 8px",
+                                        borderRadius: "4px",
+                                        backgroundColor: claimResult.isClaim ? "#f44336" : "#4caf50",
+                                        color: "white",
+                                        fontWeight: "bold",
+                                        fontSize: "14px"
+                                    }}>
+                                        {claimResult.isClaim ? "⚠️ CLAIM DETECTED" : "✅ FACTUAL / NEUTRAL"}
+                                    </span>
+                                    <span style={{ marginLeft: "10px", fontWeight: "bold", color: "#333" }}>
+                                        {claimResult.primaryLabel.toUpperCase()}
+                                    </span>
+                                </div>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                                    {Object.entries(claimResult.scores).map(([label, score]: [string, any]) => (
+                                        <div key={label} style={{ backgroundColor: "white", padding: "8px", borderRadius: "4px" }}>
+                                            <div style={{ fontSize: "11px", color: "#666", textTransform: "capitalize" }}>{label}</div>
+                                            <div style={{ height: "6px", backgroundColor: "#eee", borderRadius: "3px", marginTop: "4px" }}>
+                                                <div style={{
+                                                    width: `${score * 100}%`,
+                                                    height: "100%",
+                                                    backgroundColor: label.includes('claim') ? '#ff9800' : '#2196f3',
+                                                    borderRadius: "3px"
+                                                }}></div>
+                                            </div>
+                                            <div style={{ fontSize: "12px", textAlign: "right", marginTop: "2px" }}>{(score * 100).toFixed(1)}%</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: "10px", fontSize: "11px", color: "#666", textAlign: "right" }}>
+                                    Model: {claimResult.model}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Error Display */}
                         {mlError && (

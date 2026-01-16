@@ -21,10 +21,12 @@ import {
     isMLServiceReady,
     testMLService,
     clearMLCache,
+    detectImplicitClaims, // Import new function
     type MLConfig,
     type HateSpeechResult,
     type BatchHateSpeechResult,
-    type MLAnalysisResult
+    type MLAnalysisResult,
+    type ClaimAnalysisResult // Import type
 } from "./mlService";
 
 /**
@@ -375,6 +377,19 @@ async function analyzeCrawledContentForHateSpeech(crawlResult: any): Promise<{ s
     }
 }
 
+// ... (wrapper function)
+/**
+ * Analyze text for implicit marketing claims
+ */
+async function analyzeImplicitClaims(text: string): Promise<any> {
+    try {
+        const result = await detectImplicitClaims(text);
+        return { success: true, ...result };
+    } catch (error) {
+        return { success: false, error: String(error) };
+    }
+}
+
 // Expose API to UI
 addOnSandboxSdk.instance.runtime.exposeApi({
     // Original API (backward compatible)
@@ -395,6 +410,7 @@ addOnSandboxSdk.instance.runtime.exposeApi({
     analyzeTextForHateSpeech,
     analyzeDocumentForHateSpeech,
     analyzeCrawledContentForHateSpeech,
+    analyzeImplicitClaims, // Add to exposed API list
     getMLConfig,
     isMLServiceReady,
     testMLService,

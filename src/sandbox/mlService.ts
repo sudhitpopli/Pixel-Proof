@@ -160,6 +160,43 @@ export function clearMLCache(): void {
 }
 
 // ============================================================================
+// Implicit Claim Detection
+// ============================================================================
+
+export interface ClaimAnalysisResult {
+    isClaim: boolean;
+    primaryLabel: string;
+    scores: Record<string, number>;
+    model: string;
+}
+
+export async function detectImplicitClaims(text: string): Promise<ClaimAnalysisResult> {
+    if (!currentConfig.backendUrl) {
+        throw new Error('Claim analysis requires Backend Server URL configuration.');
+    }
+
+    try {
+        const response = await fetch(`${currentConfig.backendUrl}/analyze-claims`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Backend error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error);
+
+        return data.result;
+    } catch (error) {
+        console.error('Claim analysis failed:', error);
+        throw error;
+    }
+}
+
+// ============================================================================
 // Hate Speech Detection
 // ============================================================================
 
