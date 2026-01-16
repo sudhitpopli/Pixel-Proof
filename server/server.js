@@ -8,6 +8,7 @@ import { spawn } from "child_process";
 import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
+import Tesseract from "tesseract.js"; // <--- NEW IMPORT
 
 // Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -28,6 +29,7 @@ console.log(`✅ Loaded API Key: ${process.env.GEMINI_API_KEY.substring(0, 4)}..
 console.log("------------------------------------------------");
 
 const app = express();
+// Multer saves files to 'uploads/' so Tesseract can read them from disk
 const upload = multer({ dest: "uploads/" });
 
 app.use(cors());
@@ -149,35 +151,36 @@ app.post("/analyze-bias", async (req, res) => {
 });
 
 // ==========================================
-// ROUTE 2: OCR / VISION
+// ROUTE 2: OCR / VISION (UPDATED WITH TESSERACT)
 // ==========================================
 app.post("/analyze-image", upload.single("image"), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "No image file uploaded" });
 
-        const model = genAI.getGenerativeModel({
-            model: MODEL_NAME,
-            safetySettings
-        });
+        console.log(`Processing OCR for file: ${req.file.path}`);
 
-        const imagePart = {
-            inlineData: {
-                data: Buffer.from(fs.readFileSync(req.file.path)).toString("base64"),
-                mimeType: req.file.mimetype,
-            },
-        };
+        // Tesseract.js Logic
+        // 'eng' is the language code. It will download language data on first run.
+        const { data: { text } } = await Tesseract.recognize(
+            req.file.path,
+            'eng', 
+            { logger: m => console.log(m) } // Logs progress to console (optional)
+        );
 
-        const prompt = "Extract all text. Return JSON if it's a form, raw string otherwise.";
-
-        const result = await model.generateContent([prompt, imagePart]);
-        const response = await result.response;
-        const text = response.text();
-
+        // Cleanup: Delete the uploaded file from the 'uploads/' folder
         fs.unlinkSync(req.file.path);
+
+        // Send back the result
         res.json({ result: text });
 
     } catch (error) {
         console.error("OCR Error:", error.message);
+        
+        // Cleanup file if it exists and error happened mid-stream
+        if (req.file && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
+        
         res.status(500).json({ error: error.message });
     }
 });

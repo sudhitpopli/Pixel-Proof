@@ -93,9 +93,9 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
 
             // ==========================================
-            // STEP 2: SEND TO GEMINI (OCR)
+            // STEP 2: SEND TO LOCAL OCR SERVER
             // ==========================================
-            console.log("📡 [Step 2] Sending image to Gemini OCR (/analyze-image)...");
+            console.log("📡 [Step 2] Sending image to Local Tesseract OCR (/analyze-image)...");
             const formData = new FormData();
             formData.append("image", blob, "page-rendition.png");
 
@@ -111,14 +111,14 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             if (!ocrResponse.ok) {
                 const errText = await ocrResponse.text();
                 console.error("❌ [Step 2] Server Error:", errText);
-                throw new Error(`Gemini OCR Failed (${ocrResponse.status}): ${errText}`);
+                throw new Error(`OCR Failed (${ocrResponse.status}): ${errText}`);
             }
 
             const ocrData = await ocrResponse.json();
             console.log("✅ [Step 2] OCR JSON Parsed:", ocrData);
 
             if (ocrData.error) {
-                throw new Error(`Gemini OCR Error: ${ocrData.error}`);
+                throw new Error(`OCR Error: ${ocrData.error}`);
             }
 
             const extractedText = ocrData.result;
@@ -557,8 +557,8 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                 color: "#c00"
                             }}>
                                 <strong>Error:</strong> {error}
-
-                                {error.includes("sandbox environment") && (
+                                {/* Updated hint to mention Tesseract backend instead of browser API issues */}
+                                {error.includes("Failed to fetch") && (
                                     <div style={{
                                         marginTop: "10px",
                                         padding: "10px",
@@ -567,16 +567,10 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                         borderRadius: "4px",
                                         color: "#856404"
                                     }}>
-                                        <strong>ℹ️ Sandbox Limitation:</strong>
+                                        <strong>⚠️ Server Connection Failed</strong>
                                         <p style={{ margin: "5px 0 0 0", fontSize: "13px" }}>
-                                            Adobe Express sandbox environment doesn't support browser APIs needed for OCR.
-                                            Text node extraction still works! For OCR functionality, consider:
+                                            Could not connect to the local OCR server. Please ensure Docker is running and the server is up at <code>http://localhost:3000</code>.
                                         </p>
-                                        <ul style={{ margin: "5px 0 0 20px", fontSize: "13px" }}>
-                                            <li>Using a server-side OCR API</li>
-                                            <li>Exporting images and processing externally</li>
-                                            <li>Waiting for Adobe Express SDK OCR support</li>
-                                        </ul>
                                     </div>
                                 )}
                             </div>
