@@ -3,28 +3,12 @@ import { Theme } from "@swc-react/theme";
 import { Button } from "@swc-react/button";
 import "./App.css";
 
-interface TextExtractionResult {
-    success: boolean;
-    textElements: string[];
-    count: number;
-    error?: string;
-}
-
-interface ExtractedTextResult {
+// INTERFACES
+interface AnalyzedSegment {
     text: string;
-    source: 'text-node' | 'ocr';
-    nodeId: string;
-    confidence?: number;
-}
-
-interface ExtractionSummary {
-    success: boolean;
-    totalElements: number;
-    textNodes: number;
-    ocrResults: number;
-    results: ExtractedTextResult[];
-    rawText: string;
-    error?: string;
+    label: string;
+    confidence: number;
+    is_hate: boolean;
 }
 
 interface AppProps {
@@ -33,223 +17,107 @@ interface AppProps {
 }
 
 const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
-    // UI State
-    const [extractedText, setExtractedText] = useState<string[]>([]);
-    const [ocrResults, setOcrResults] = useState<ExtractionSummary | null>(null);
-    const [isExtracting, setIsExtracting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [showRawText, setShowRawText] = useState(false);
-
-    // Web Crawler state
-    const [crawlUrl, setCrawlUrl] = useState<string>('');
-    const [crawlResult, setCrawlResult] = useState<any>(null);
-    const [isCrawling, setIsCrawling] = useState(false);
-    const [crawlError, setCrawlError] = useState<string | null>(null);
-
-    // ML / Analysis State
-    const [mlResults, setMlResults] = useState<any>(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [mlError, setMlError] = useState<string | null>(null);
+    // --- STATE ---
+    const [rawOcrText, setRawOcrText] = useState<string>("");
+    const [rawDocText, setRawDocText] = useState<string>("");
     
-    // Page-level OCR state
-    const [pageOcrText, setPageOcrText] = useState<string | null>(null);
-    const [isPageOcrProcessing, setIsPageOcrProcessing] = useState(false);
+    // Analysis State
+    const [mlResults, setMlResults] = useState<any>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // =========================================================================
-    // HELPER: Format Python Backend Response for UI
-    // =========================================================================
-    const formatBackendResponse = (text: string, analysisData: any) => {
-        // Python returns: { text: "...", scores: { "Hate": 0.9, "Normal": 0.1 } }
-        const scores = analysisData.scores || {};
-        let maxLabel = "unknown";
-        let maxScore = 0;
+    // Toggle views
+    const [viewMode, setViewMode] = useState<'analysis' | 'raw'>('analysis');
 
-        for (const [label, score] of Object.entries(scores)) {
-            if (typeof score === 'number' && score > maxScore) {
-                maxScore = score;
-                maxLabel = label;
-            }
-        }
-
-        const isHateSpeech = maxLabel.toLowerCase().includes('hate') || maxLabel.toLowerCase().includes('offensive');
+    // --- HELPER: FORMATTING ---
+    const formatBackendResponse = (analysisData: any) => {
+        const segments: AnalyzedSegment[] = analysisData.segments || [];
+        let hateCount = 0;
+        
+        segments.forEach(seg => {
+            if (seg.is_hate) hateCount++;
+        });
 
         return {
             success: true,
-            results: [{
-                text: text,
-                result: {
-                    label: maxLabel,
-                    score: maxScore,
-                    isHateSpeech: isHateSpeech,
-                    confidence: maxScore * 100
-                }
-            }],
+            segments: segments,
             summary: {
-                hateSpeechCount: isHateSpeech ? 1 : 0,
-                cleanCount: isHateSpeech ? 0 : 1,
-                totalAnalyzed: 1,
-                averageConfidence: maxScore * 100
+                hateSpeechCount: hateCount,
+                totalAnalyzed: segments.length
             }
         };
     };
 
-    // =========================================================================
-    // 1. ADVANCE SPELL CHECK (OCR + DOCUMENT TEXT + HATE DETECTION)
-    // =========================================================================
+    // --- MAIN FUNCTION ---
     const handleAdvanceSpellCheck = async () => {
-        console.log("🚀 START: Advance Spell Check");
-        setIsPageOcrProcessing(true);
+        console.log("🚀 STARTING SCAN...");
+        setIsProcessing(true);
         setError(null);
-        setPageOcrText(null);
         setMlResults(null);
-        setMlError(null);
+        setRawOcrText("");
+        setRawDocText("");
 
         try {
-            // STEP 1: CAPTURE IMAGE FOR OCR
-            if (!addOnUISdk.app.document.createRenditions) throw new Error("SDK Error: createRenditions API is not available.");
-            
-            const renditionResults = await addOnUISdk.app.document.createRenditions({ range: "currentPage", format: "image/png" });
-            if (!renditionResults || renditionResults.length === 0) throw new Error("SDK Error: No renditions returned.");
-            const blob = renditionResults[0].blob;
+            // 1. OCR SCAN (From Image)
+            let ocrTxt = "";
+            try {
+                if (addOnUISdk.app.document.createRenditions) {
+                    const renditionResults = await addOnUISdk.app.document.createRenditions({ range: "currentPage", format: "image/png" });
+                    const blob = renditionResults[0].blob;
+                    
+                    const formData = new FormData();
+                    formData.append("image", blob, "page.png");
+                    
+                    const res = await fetch("http://localhost:3000/analyze-image", { method: "POST", body: formData });
+                    if (res.ok) {
+                        const data = await res.json();
+                        ocrTxt = data.result || "";
+                        setRawOcrText(ocrTxt);
+                    }
+                }
+            } catch (e) {
+                console.warn("OCR Skipped/Failed:", e);
+            }
 
-            // STEP 2: SEND TO OCR (/analyze-image)
-            const formData = new FormData();
-            formData.append("image", blob, "page-rendition.png");
-            
-            const ocrResponse = await fetch("http://localhost:3000/analyze-image", { method: "POST", body: formData });
-            if (!ocrResponse.ok) throw new Error(`OCR Failed: ${await ocrResponse.text()}`);
-            
-            const ocrData = await ocrResponse.json();
-            const ocrText = ocrData.result;
-
-            // STEP 3: FETCH DOCUMENT TEXT (Native Nodes)
-            // We fetch this separately so we can combine it with the OCR text
-            let docText = "";
+            // 2. DOCUMENT TEXT (From Sandbox)
+            let docTxt = "";
             try {
                 const extractionResult = await sandboxProxy.extractText();
                 if (extractionResult.success) {
-                    docText = extractionResult.textElements.join('\n');
+                    docTxt = extractionResult.textElements.join(' ');
+                    setRawDocText(docTxt);
                 }
             } catch (e) {
-                console.warn("Could not extract document text, continuing with only OCR text", e);
+                console.warn("Doc Text Extraction Failed:", e);
             }
 
-            // STEP 4: COMBINE BOTH TEXTS
-            // This ensures the user gets analyzed results for EVERYTHING on the page
-            const combinedText = `--- [OCR RESULT] ---\n${ocrText}\n\n--- [DOCUMENT TEXT] ---\n${docText}`;
-            setPageOcrText(combinedText);
+            // 3. COMBINE & ANALYZE
+            const combinedText = `${ocrTxt}\n ${docTxt}`.trim();
 
-            // STEP 5: SEND COMBINED TEXT TO HATE DETECTOR (/analyze-hate)
-            const analysisResponse = await fetch("http://localhost:3000/analyze-hate", {
+            if (!combinedText) {
+                throw new Error("No text found in either OCR or Document Layers.");
+            }
+
+            const analysisRes = await fetch("http://localhost:3000/analyze-hate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: combinedText })
             });
 
-            if (!analysisResponse.ok) throw new Error(`Analysis Failed: ${await analysisResponse.text()}`);
+            if (!analysisRes.ok) throw new Error(await analysisRes.text());
             
-            const analysisData = await analysisResponse.json();
-            const formattedResult = formatBackendResponse(combinedText, analysisData);
-
-            setMlResults(formattedResult);
+            const analysisData = await analysisRes.json();
+            const formatted = formatBackendResponse(analysisData);
+            
+            setMlResults(formatted);
+            setViewMode('analysis'); // Switch to results view
 
         } catch (err: any) {
-            console.error("❌ Error:", err);
+            console.error(err);
             setError(err.message);
-            setMlError(err.message);
         } finally {
-            setIsPageOcrProcessing(false);
+            setIsProcessing(false);
         }
-    };
-
-    // =========================================================================
-    // 2. ANALYZE DOCUMENT TEXT NODES (NO OCR)
-    // =========================================================================
-    const handleAnalyzeDocument = async () => {
-        setIsAnalyzing(true);
-        setMlError(null);
-        setMlResults(null);
-
-        try {
-            // 1. Get Text from Document (using existing sandbox logic)
-            console.log('Extracting text from document nodes...');
-            const extractionResult: TextExtractionResult = await sandboxProxy.extractText();
-            
-            if (!extractionResult.success) throw new Error(extractionResult.error || "Failed to extract text");
-            
-            const textToAnalyze = extractionResult.textElements.join(' \n ');
-            if (!textToAnalyze.trim()) throw new Error("No text found in document to analyze.");
-
-            // 2. Send to Local Backend
-            console.log('Sending to local backend for analysis...');
-            const response = await fetch("http://localhost:3000/analyze-hate", {
-                 method: "POST",
-                 headers: { "Content-Type": "application/json" },
-                 body: JSON.stringify({ text: textToAnalyze })
-            });
-
-            if (!response.ok) throw new Error(await response.text());
-            
-            const data = await response.json();
-            const formattedResult = formatBackendResponse(textToAnalyze, data);
-            
-            setMlResults(formattedResult);
-
-        } catch (err: any) {
-            console.error('Failed to analyze document:', err);
-            setMlError(err.message || String(err));
-        } finally {
-            setIsAnalyzing(false);
-        }
-    };
-
-    // =========================================================================
-    // 3. ANALYZE CRAWLED CONTENT
-    // =========================================================================
-    const handleAnalyzeCrawledContent = async () => {
-        if (!crawlResult) {
-            setMlError('Please crawl a website first');
-            return;
-        }
-
-        setIsAnalyzing(true);
-        setMlError(null);
-        setMlResults(null);
-
-        try {
-            const textToAnalyze = crawlResult.text.fullText;
-            if (!textToAnalyze) throw new Error("No text content found in crawl result.");
-
-            const response = await fetch("http://localhost:3000/analyze-hate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: textToAnalyze })
-            });
-
-            if (!response.ok) throw new Error(await response.text());
-
-            const data = await response.json();
-            const formattedResult = formatBackendResponse(textToAnalyze, data);
-
-            setMlResults(formattedResult);
-        } catch (err: any) {
-            console.error('Failed to analyze crawled content:', err);
-            setMlError(err.message || String(err));
-        } finally {
-            setIsAnalyzing(false);
-        }
-    };
-
-    // Keep existing utility functions
-    const handleCrawlWebPage = async () => {
-        if (!crawlUrl.trim()) { setCrawlError('Please enter a valid URL'); return; }
-        setIsCrawling(true); setCrawlError(null); setCrawlResult(null);
-        try {
-            const result = await sandboxProxy.crawlWebPage(crawlUrl);
-            if (result.error) setCrawlError(result.error);
-            else setCrawlResult(result);
-        } catch (err: any) { setCrawlError(err.message); } 
-        finally { setIsCrawling(false); }
     };
 
     return (
@@ -257,126 +125,137 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             <div className="compliance-container">
                 <header className="compliance-header">
                     <h1>ComplianceGuard Pro</h1>
-                    <p>Powered by Local AI (HateBERT & Tesseract)</p>
                 </header>
 
                 <main className="compliance-content">
-                    {/* SECTION 1: OCR & DOCUMENT SCAN */}
                     <div className="scanner-panel">
-                        <h2>Extract & Analyze Document</h2>
-                        <p>Scan the visible page image for text and hate speech.</p>
+                        <h2>Advance Spell Check</h2>
+                        <p>Scans images (OCR) and text layers for hate speech.</p>
 
                         <div className="button-group">
-                            <Button size="m" onClick={handleAdvanceSpellCheck} disabled={isPageOcrProcessing} variant="cta">
-                                {isPageOcrProcessing ? "🔍 Scanning & Analyzing..." : "✨ Advance Spell Check (OCR + Doc)"}
+                            <Button size="m" onClick={handleAdvanceSpellCheck} disabled={isProcessing} variant="cta">
+                                {isProcessing ? "🔍 Scanning..." : "✨ Run Scan"}
                             </Button>
                         </div>
 
-                        {error && (
-                            <div className="error-message" style={{ marginTop: "20px", padding: "15px", backgroundColor: "#fee", color: "#c00", borderRadius: "6px" }}>
-                                <strong>Error:</strong> {error}
-                                {error.includes("Failed to fetch") && (
-                                    <p style={{ fontSize: "12px", marginTop: "5px" }}>
-                                        ⚠️ Cannot connect to server. Ensure Docker is running at <code>http://localhost:3000</code>
-                                    </p>
-                                )}
-                            </div>
-                        )}
-
-                        {/* OCR Raw Text Preview - FIXED: Removed !mlResults so it persists */}
-                        {pageOcrText && (
-                            <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#f9f9f9", borderRadius: "4px" }}>
-                                <strong>Extracted Text (Combined):</strong>
-                                <p style={{ fontSize: "12px", whiteSpace: "pre-wrap" }}>{pageOcrText.substring(0, 300)}...</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* SECTION 2: WEB CRAWLER */}
-                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
-                        <h2>🌐 Web Crawler</h2>
-                        <div style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
-                            <input
-                                type="url"
-                                value={crawlUrl}
-                                onChange={(e) => setCrawlUrl(e.target.value)}
-                                placeholder="https://example.com"
-                                style={{ flex: 1, padding: "8px", border: "1px solid #ccc", borderRadius: "4px" }}
-                            />
-                            <Button size="m" onClick={handleCrawlWebPage} disabled={isCrawling}>
-                                {isCrawling ? "Crawling..." : "Crawl"}
-                            </Button>
-                        </div>
-                        {crawlResult && (
-                            <div style={{ marginTop: "10px", padding: "10px", backgroundColor: "#e8f5e9", color: "#2e7d32", borderRadius: "4px" }}>
-                                ✅ Crawled: {crawlResult.title} ({crawlResult.text?.fullText?.length || 0} chars)
-                            </div>
-                        )}
-                        {crawlError && <div style={{ color: "red", marginTop: "10px" }}>{crawlError}</div>}
-                    </div>
-
-                    {/* SECTION 3: HATE SPEECH DETECTION */}
-                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
-                        <h2>🤖 Hate Speech Detection</h2>
-                        <p>Analyze text using local HateBERT model.</p>
-                        
-                        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
-                            <Button 
-                                size="m" 
-                                onClick={handleAnalyzeDocument} 
-                                disabled={isAnalyzing} 
-                                variant="primary"
-                            >
-                                {isAnalyzing ? "Analyzing..." : "🔍 Analyze Document Text (No OCR)"}
-                            </Button>
-
-                            {crawlResult && (
-                                <Button 
-                                    size="m" 
-                                    onClick={handleAnalyzeCrawledContent} 
-                                    disabled={isAnalyzing}
+                        {/* TABS FOR VIEWING RESULTS */}
+                        {!isProcessing && (rawOcrText || rawDocText) && (
+                            <div style={{ marginTop: "20px", borderBottom: "1px solid #ddd" }}>
+                                <button 
+                                    onClick={() => setViewMode('analysis')}
+                                    style={{ padding: "8px 15px", marginRight: "10px", fontWeight: viewMode==='analysis'?'bold':'normal', borderBottom: viewMode==='analysis'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}
                                 >
-                                    {isAnalyzing ? "Analyzing..." : "🌐 Analyze Crawled Content"}
-                                </Button>
-                            )}
-                        </div>
+                                    🛡️ Analysis Results
+                                </button>
+                                <button 
+                                    onClick={() => setViewMode('raw')}
+                                    style={{ padding: "8px 15px", fontWeight: viewMode==='raw'?'bold':'normal', borderBottom: viewMode==='raw'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}
+                                >
+                                    📝 Raw Text Data
+                                </button>
+                            </div>
+                        )}
 
-                        {/* RESULTS DISPLAY */}
-                        {mlError && <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#fee", color: "#c00" }}>Error: {mlError}</div>}
+                        {error && <div className="error-message" style={{color: "red", marginTop: "10px"}}>{error}</div>}
 
-                        {mlResults && mlResults.success && (
-                            <div style={{ marginTop: "25px", border: "1px solid #ddd", borderRadius: "6px", overflow: "hidden" }}>
+                        {/* ========================================================= */}
+                        {/* VIEW 1: ANALYSIS RESULTS                                  */}
+                        {/* ========================================================= */}
+                        {viewMode === 'analysis' && mlResults && (
+                            <div style={{ marginTop: "15px" }}>
+                                
+                                {/* 1. SUMMARY HEADER */}
                                 <div style={{ 
-                                    padding: "15px", 
+                                    marginBottom: "20px", 
+                                    padding: "10px", 
+                                    borderRadius: "6px", 
                                     backgroundColor: mlResults.summary.hateSpeechCount > 0 ? "#ffebee" : "#e8f5e9",
-                                    borderBottom: "1px solid #ddd"
+                                    color: mlResults.summary.hateSpeechCount > 0 ? "#c62828" : "#2e7d32",
+                                    fontWeight: "bold",
+                                    textAlign: "center"
                                 }}>
-                                    <strong style={{ fontSize: "16px", color: mlResults.summary.hateSpeechCount > 0 ? "#c62828" : "#2e7d32" }}>
-                                        {mlResults.summary.hateSpeechCount > 0 ? "⚠️ Hate Speech Detected" : "✅ Content Seems Safe"}
-                                    </strong>
+                                    {mlResults.summary.hateSpeechCount > 0 
+                                        ? `⚠️ Found ${mlResults.summary.hateSpeechCount} Flagged Item(s)` 
+                                        : "✅ No Hate Speech Detected"}
                                 </div>
-                                <div style={{ padding: "15px", backgroundColor: "#f9f9f9" }}>
-                                    {mlResults.results.map((item: any, idx: number) => (
-                                        <div key={idx} style={{ marginBottom: "15px" }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                                                <span style={{ fontWeight: "bold", textTransform: "capitalize" }}>
-                                                    Label: {item.result.label}
-                                                </span>
-                                                <span>Conf: {item.result.confidence.toFixed(1)}%</span>
-                                            </div>
-                                            <div style={{ fontSize: "13px", color: "#555", padding: "10px", backgroundColor: "white", border: "1px solid #eee" }}>
-                                                {/* Display snippet of analyzed text */}
-                                                "{item.text.substring(0, 300)}{item.text.length > 300 ? "..." : ""}"
-                                            </div>
+
+                                {/* 2. NEW BOX: FLAGGED PHRASES ONLY */}
+                                {mlResults.summary.hateSpeechCount > 0 && (
+                                    <div style={{ marginBottom: "25px", border: "1px solid #ef9a9a", borderRadius: "6px", overflow: "hidden" }}>
+                                        <div style={{ backgroundColor: "#ffebee", padding: "8px 12px", borderBottom: "1px solid #ef9a9a", fontWeight: "bold", color: "#b71c1c", fontSize: "14px" }}>
+                                            🚩 Flagged Content Details
                                         </div>
-                                    ))}
+                                        <div style={{ maxHeight: "200px", overflowY: "auto", backgroundColor: "white" }}>
+                                            {mlResults.segments.filter((s: AnalyzedSegment) => s.is_hate).map((seg: AnalyzedSegment, idx: number) => (
+                                                <div key={idx} style={{ padding: "10px", borderBottom: "1px solid #eee", display: "flex", flexDirection: "column", gap: "5px" }}>
+                                                    <div style={{ fontSize: "14px", color: "#333", fontWeight: "500" }}>
+                                                        "{seg.text}"
+                                                    </div>
+                                                    <div style={{ display: "flex", gap: "10px", fontSize: "12px" }}>
+                                                        <span style={{ 
+                                                            backgroundColor: "#ffcdd2", color: "#b71c1c", 
+                                                            padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" 
+                                                        }}>
+                                                            {seg.label}
+                                                        </span>
+                                                        <span style={{ color: "#666", alignSelf: "center" }}>
+                                                            Confidence: {(seg.confidence * 100).toFixed(1)}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 3. FULL CONTEXT VIEW */}
+                                <div style={{ border: "1px solid #ccc", padding: "15px", borderRadius: "6px", backgroundColor: "#fff" }}>
+                                    <h4 style={{marginTop: 0, marginBottom: "10px", fontSize: "14px", color: "#555"}}>📄 Full Text Context</h4>
+                                    <div style={{ lineHeight: "1.8", fontSize: "14px" }}>
+                                        {mlResults.segments.map((seg: AnalyzedSegment, idx: number) => (
+                                            <span key={idx} 
+                                                style={{ 
+                                                    backgroundColor: seg.is_hate ? "rgba(255, 0, 0, 0.1)" : "transparent",
+                                                    borderBottom: seg.is_hate ? "2px solid red" : "none",
+                                                    marginRight: "5px",
+                                                    padding: "2px 0",
+                                                    borderRadius: "3px",
+                                                    cursor: seg.is_hate ? "help" : "default"
+                                                }}
+                                                title={seg.is_hate ? `${seg.label} (${(seg.confidence * 100).toFixed(0)}%)` : ""}
+                                            >
+                                                {seg.text}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         )}
+
+                        {/* ========================================================= */}
+                        {/* VIEW 2: RAW TEXT DATA                                     */}
+                        {/* ========================================================= */}
+                        {viewMode === 'raw' && (
+                            <div style={{ marginTop: "15px" }}>
+                                <div style={{ marginBottom: "20px" }}>
+                                    <strong>🖼️ OCR Text (From Image):</strong>
+                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                                        {rawOcrText || "(No text found in image)"}
+                                    </div>
+                                </div>
+                                <div>
+                                    <strong>📄 Document Text (From Layers):</strong>
+                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                                        {rawDocText || "(No text layers found)"}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                     </div>
                 </main>
             </div>
-        </Theme >
+        </Theme>
     );
 };
 

@@ -32,7 +32,8 @@ test_texts = [
     "you are a freak",
     "offensive language",
     "nigga",
-    "black neighbourhood"
+    "black neighbourhood",
+    "women should be in a kitchen"
 ]
 
 for text in test_texts:
