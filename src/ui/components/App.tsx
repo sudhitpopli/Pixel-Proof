@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import { Theme } from "@swc-react/theme";
-import { Button } from "@swc-react/button";
+import refreshIcon from "../../Assets/refresh-icon.svg";
+import copyrightIcon from "../../Assets/copyright-icon.svg";
+import visionIcon from "../../Assets/vision-icon.svg";
+import legalIcon from "../../Assets/legal-icon.svg";
+import menuIcon from "../../Assets/menu-icon.svg";
 import "./App.css";
 
 // INTERFACES
@@ -28,6 +32,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
     // Toggle views
     const [viewMode, setViewMode] = useState<'analysis' | 'raw'>('analysis');
+    const [activeTab, setActiveTab] = useState<'copyright' | 'vision' | 'legal' | 'menu'>('copyright');
 
     // --- HELPER: FORMATTING ---
     const formatBackendResponse = (analysisData: any) => {
@@ -122,138 +127,150 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
     return (
         <Theme system="express" scale="medium" color="light">
-            <div className="compliance-container">
-                <header className="compliance-header">
-                    <h1>ComplianceGuard Pro</h1>
-                </header>
+            <div className="pixel-proof-container">
+                {/* Top bar with checkbox and title */}
+                <div className="top-bar">
+                    <div className="title-section">
+                        <input type="checkbox" className="title-checkbox" />
+                        <span className="app-title">PIXEL PROOF</span>
+                    </div>
+                </div>
 
-                <main className="compliance-content">
-                    <div className="scanner-panel">
-                        <h2>Advance Spell Check</h2>
-                        <p>Scans images (OCR) and text layers for hate speech.</p>
+                {/* Centered Refresh Button */}
+                <div className="refresh-section">
+                    <button 
+                        className="refresh-button"
+                        onClick={handleAdvanceSpellCheck} 
+                        disabled={isProcessing}
+                    >
+                        <img src={refreshIcon} alt="Refresh" className="refresh-icon" />
+                        <span>Refresh</span>
+                    </button>
+                </div>
 
-                        <div className="button-group">
-                            <Button size="m" onClick={handleAdvanceSpellCheck} disabled={isProcessing} variant="cta">
-                                {isProcessing ? "🔍 Scanning..." : "✨ Run Scan"}
-                            </Button>
+                {/* Navigation Tabs */}
+                <div className="nav-tabs">
+                    <button 
+                        className={`nav-tab ${activeTab === 'copyright' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('copyright')}
+                    >
+                        <img src={copyrightIcon} alt="Copyright" className="nav-icon" />
+                        {activeTab === 'copyright' && <div className="active-indicator"></div>}
+                    </button>
+                    <button 
+                        className={`nav-tab ${activeTab === 'vision' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('vision')}
+                    >
+                        <img src={visionIcon} alt="Vision" className="nav-icon" />
+                        {activeTab === 'vision' && <div className="active-indicator"></div>}
+                    </button>
+                    <button 
+                        className={`nav-tab ${activeTab === 'legal' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('legal')}
+                    >
+                        <img src={legalIcon} alt="Legal" className="nav-icon" />
+                        {activeTab === 'legal' && <div className="active-indicator"></div>}
+                    </button>
+                    <button 
+                        className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('menu')}
+                    >
+                        <img src={menuIcon} alt="Menu" className="nav-icon" />
+                        {activeTab === 'menu' && <div className="active-indicator"></div>}
+                    </button>
+                </div>
+
+                {/* Tab Title */}
+                <div className="tab-title">
+                    {activeTab === 'copyright' && 'Copyright'}
+                    {activeTab === 'vision' && 'Vision'}
+                    {activeTab === 'legal' && 'Legal'}
+                    {activeTab === 'menu' && 'Menu'}
+                </div>
+
+                {/* Content Area */}
+                <div className="content-area">
+
+                    {isProcessing && (
+                        <div className="processing-indicator">
+                            <div className="spinner"></div>
+                            <p>Scanning...</p>
                         </div>
+                    )}
 
-                        {/* TABS FOR VIEWING RESULTS */}
-                        {!isProcessing && (rawOcrText || rawDocText) && (
-                            <div style={{ marginTop: "20px", borderBottom: "1px solid #ddd" }}>
-                                <button 
-                                    onClick={() => setViewMode('analysis')}
-                                    style={{ padding: "8px 15px", marginRight: "10px", fontWeight: viewMode==='analysis'?'bold':'normal', borderBottom: viewMode==='analysis'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}
-                                >
-                                    🛡️ Analysis Results
-                                </button>
-                                <button 
-                                    onClick={() => setViewMode('raw')}
-                                    style={{ padding: "8px 15px", fontWeight: viewMode==='raw'?'bold':'normal', borderBottom: viewMode==='raw'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}
-                                >
-                                    📝 Raw Text Data
-                                </button>
+                    {error && <div className="error-message">{error}</div>}
+
+                    {/* Analysis Results View */}
+                    {!isProcessing && viewMode === 'analysis' && mlResults && (
+                        <div className="results-content">
+                            {/* Summary Header */}
+                            <div className={`summary-header ${mlResults.summary.hateSpeechCount > 0 ? 'has-issues' : 'clean'}`}>
+                                {mlResults.summary.hateSpeechCount > 0 
+                                    ? `⚠️ Found ${mlResults.summary.hateSpeechCount} Flagged Item(s)` 
+                                    : "✅ No hate speech or offensive language is detected"}
                             </div>
-                        )}
 
-                        {error && <div className="error-message" style={{color: "red", marginTop: "10px"}}>{error}</div>}
-
-                        {/* ========================================================= */}
-                        {/* VIEW 1: ANALYSIS RESULTS                                  */}
-                        {/* ========================================================= */}
-                        {viewMode === 'analysis' && mlResults && (
-                            <div style={{ marginTop: "15px" }}>
-                                
-                                {/* 1. SUMMARY HEADER */}
-                                <div style={{ 
-                                    marginBottom: "20px", 
-                                    padding: "10px", 
-                                    borderRadius: "6px", 
-                                    backgroundColor: mlResults.summary.hateSpeechCount > 0 ? "#ffebee" : "#e8f5e9",
-                                    color: mlResults.summary.hateSpeechCount > 0 ? "#c62828" : "#2e7d32",
-                                    fontWeight: "bold",
-                                    textAlign: "center"
-                                }}>
-                                    {mlResults.summary.hateSpeechCount > 0 
-                                        ? `⚠️ Found ${mlResults.summary.hateSpeechCount} Flagged Item(s)` 
-                                        : "✅ No Hate Speech Detected"}
-                                </div>
-
-                                {/* 2. NEW BOX: FLAGGED PHRASES ONLY */}
-                                {mlResults.summary.hateSpeechCount > 0 && (
-                                    <div style={{ marginBottom: "25px", border: "1px solid #ef9a9a", borderRadius: "6px", overflow: "hidden" }}>
-                                        <div style={{ backgroundColor: "#ffebee", padding: "8px 12px", borderBottom: "1px solid #ef9a9a", fontWeight: "bold", color: "#b71c1c", fontSize: "14px" }}>
-                                            🚩 Flagged Content Details
-                                        </div>
-                                        <div style={{ maxHeight: "200px", overflowY: "auto", backgroundColor: "white" }}>
-                                            {mlResults.segments.filter((s: AnalyzedSegment) => s.is_hate).map((seg: AnalyzedSegment, idx: number) => (
-                                                <div key={idx} style={{ padding: "10px", borderBottom: "1px solid #eee", display: "flex", flexDirection: "column", gap: "5px" }}>
-                                                    <div style={{ fontSize: "14px", color: "#333", fontWeight: "500" }}>
-                                                        "{seg.text}"
-                                                    </div>
-                                                    <div style={{ display: "flex", gap: "10px", fontSize: "12px" }}>
-                                                        <span style={{ 
-                                                            backgroundColor: "#ffcdd2", color: "#b71c1c", 
-                                                            padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" 
-                                                        }}>
-                                                            {seg.label}
-                                                        </span>
-                                                        <span style={{ color: "#666", alignSelf: "center" }}>
-                                                            Confidence: {(seg.confidence * 100).toFixed(1)}%
-                                                        </span>
-                                                    </div>
+                            {/* Flagged Phrases */}
+                            {mlResults.summary.hateSpeechCount > 0 && (
+                                <div className="flagged-box">
+                                    <div className="flagged-header">🚩 Flagged Content Details</div>
+                                    <div className="flagged-list">
+                                        {mlResults.segments.filter((s: AnalyzedSegment) => s.is_hate).map((seg: AnalyzedSegment, idx: number) => (
+                                            <div key={idx} className="flagged-item">
+                                                <div className="flagged-text">"{seg.text}"</div>
+                                                <div className="flagged-meta">
+                                                    <span className="flagged-label">{seg.label}</span>
+                                                    <span className="flagged-confidence">Confidence: {(seg.confidence * 100).toFixed(1)}%</span>
                                                 </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* 3. FULL CONTEXT VIEW */}
-                                <div style={{ border: "1px solid #ccc", padding: "15px", borderRadius: "6px", backgroundColor: "#fff" }}>
-                                    <h4 style={{marginTop: 0, marginBottom: "10px", fontSize: "14px", color: "#555"}}>📄 Full Text Context</h4>
-                                    <div style={{ lineHeight: "1.8", fontSize: "14px" }}>
-                                        {mlResults.segments.map((seg: AnalyzedSegment, idx: number) => (
-                                            <span key={idx} 
-                                                style={{ 
-                                                    backgroundColor: seg.is_hate ? "rgba(255, 0, 0, 0.1)" : "transparent",
-                                                    borderBottom: seg.is_hate ? "2px solid red" : "none",
-                                                    marginRight: "5px",
-                                                    padding: "2px 0",
-                                                    borderRadius: "3px",
-                                                    cursor: seg.is_hate ? "help" : "default"
-                                                }}
-                                                title={seg.is_hate ? `${seg.label} (${(seg.confidence * 100).toFixed(0)}%)` : ""}
-                                            >
-                                                {seg.text}
-                                            </span>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {/* ========================================================= */}
-                        {/* VIEW 2: RAW TEXT DATA                                     */}
-                        {/* ========================================================= */}
-                        {viewMode === 'raw' && (
-                            <div style={{ marginTop: "15px" }}>
-                                <div style={{ marginBottom: "20px" }}>
-                                    <strong>🖼️ OCR Text (From Image):</strong>
-                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
-                                        {rawOcrText || "(No text found in image)"}
-                                    </div>
-                                </div>
-                                <div>
-                                    <strong>📄 Document Text (From Layers):</strong>
-                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
-                                        {rawDocText || "(No text layers found)"}
-                                    </div>
+                            {/* Full Context View */}
+                            <div className="context-view">
+                                <h4>📄 Full Text Context</h4>
+                                <div className="context-text">
+                                    {mlResults.segments.map((seg: AnalyzedSegment, idx: number) => (
+                                        <span 
+                                            key={idx} 
+                                            className={seg.is_hate ? 'flagged-text-highlight' : ''}
+                                            title={seg.is_hate ? `${seg.label} (${(seg.confidence * 100).toFixed(0)}%)` : ""}
+                                        >
+                                            {seg.text}
+                                        </span>
+                                    ))}
                                 </div>
                             </div>
-                        )}
+                        </div>
+                    )}
 
-                    </div>
-                </main>
+                    {/* Raw Text Data View */}
+                    {!isProcessing && viewMode === 'raw' && (
+                        <div className="raw-content">
+                            <div className="raw-section">
+                                <strong>🖼️ OCR Text (From Image):</strong>
+                                <div className="raw-text-box">
+                                    {rawOcrText || "(No text found in image)"}
+                                </div>
+                            </div>
+                            <div className="raw-section">
+                                <strong>📄 Document Text (From Layers):</strong>
+                                <div className="raw-text-box">
+                                    {rawDocText || "(No text layers found)"}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Empty State */}
+                    {!isProcessing && !mlResults && !error && (
+                        <div className="empty-state">
+                            Click Refresh to scan the document for compliance issues.
+                        </div>
+                    )}
+                </div>
             </div>
         </Theme>
     );
