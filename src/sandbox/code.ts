@@ -1,13 +1,21 @@
 import addOnSandboxSdk from "add-on-sdk-document-sandbox";
 import { editor } from "express-document-sdk";
+import { initializeOCR, terminateOCR } from "./ocrService";
+import {
+    extractTextFromTextNodes,
+    extractTextFromImages,
+    extractAllText,
+    getDocumentImages,
+    ExtractionSummary
+} from "./textExtraction";
 
 /**
- * Extract all text from the Adobe Express document
- * Iterates through pages, artboards, and text nodes
+ * Extract all text from the Adobe Express document (Text nodes only)
+ * This is the original function, maintained for backward compatibility
  */
 async function extractText() {
     try {
-        console.log("=== Starting Text Extraction ===");
+        console.log("=== Starting Text Extraction (Text Nodes Only) ===");
 
         const allText: string[] = [];
         const doc = editor.documentRoot;
@@ -69,27 +77,119 @@ async function extractText() {
 }
 
 /**
+ * Extract text from both text nodes and images using OCR
+ * Returns comprehensive results with raw text
+ */
+async function extractTextWithOCR(): Promise<ExtractionSummary> {
+    try {
+        console.log("=== Starting OCR-Enabled Text Extraction ===");
+
+        // Initialize OCR worker
+        await initializeOCR();
+
+        // Extract all text (text nodes + OCR)
+        const result = await extractAllText(true);
+
+        // Cleanup OCR worker
+        await terminateOCR();
+
+        return result;
+    } catch (error) {
+        console.error("=== OCR Extraction Failed ===");
+        console.error("Error:", error);
+
+        // Try to cleanup worker even on error
+        try {
+            await terminateOCR();
+        } catch (cleanupError) {
+            console.error("Failed to cleanup OCR worker:", cleanupError);
+        }
+
+        return {
+            success: false,
+            totalElements: 0,
+            textNodes: 0,
+            ocrResults: 0,
+            results: [],
+            rawText: '',
+            error: error instanceof Error ? error.message : String(error)
+        };
+    }
+}
+
+/**
+ * Extract text from images only (OCR only)
+ */
+async function extractTextFromImagesOnly() {
+    try {
+        console.log("=== Starting OCR-Only Text Extraction ===");
+
+        await initializeOCR();
+        const ocrResults = await extractTextFromImages();
+        await terminateOCR();
+
+        const rawText = ocrResults.map(r => r.text).join('\n');
+
+        return {
+            success: true,
+            results: ocrResults,
+            count: ocrResults.length,
+            rawText: rawText
+        };
+    } catch (error) {
+        console.error("=== OCR-Only Extraction Failed ===");
+        console.error("Error:", error);
+
+        try {
+            await terminateOCR();
+        } catch (cleanupError) {
+            console.error("Failed to cleanup OCR worker:", cleanupError);
+        }
+
+        return {
+            success: false,
+            results: [],
+            count: 0,
+            rawText: '',
+            error: error instanceof Error ? error.message : String(error)
+        };
+    }
+}
+
+/**
  * Get document metadata
  */
 async function getDocumentInfo() {
     try {
         const doc = editor.documentRoot;
+        const images = await getDocumentImages();
+
         return {
             pageCount: doc.pages.length,
-            documentId: doc.id || "unknown"
+            documentId: doc.id || "unknown",
+            imageCount: images.length,
+            images: images
         };
     } catch (error) {
         return {
             pageCount: 0,
-            documentId: "error"
+            documentId: "error",
+            imageCount: 0,
+            images: []
         };
     }
 }
 
 // Expose API to UI
 addOnSandboxSdk.instance.runtime.exposeApi({
+    // Original API (backward compatible)
     extractText,
-    getDocumentInfo
+    getDocumentInfo,
+
+    // New OCR-enabled APIs
+    extractTextWithOCR,
+    extractTextFromImagesOnly,
+    getDocumentImages
 });
 
-console.log("Sandbox API initialized - extractText and getDocumentInfo available");
+console.log("Sandbox API initialized - Text extraction and OCR APIs available");
