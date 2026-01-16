@@ -178,7 +178,9 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                 }],
                 summary: {
                     hateSpeechCount: isHateSpeech ? 1 : 0,
-                    cleanCount: isHateSpeech ? 0 : 1
+                    cleanCount: isHateSpeech ? 0 : 1,
+                    totalAnalyzed: 1,
+                    averageConfidence: maxScore * 100
                 }
             };
 
