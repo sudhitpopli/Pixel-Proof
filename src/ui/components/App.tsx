@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Theme } from "@swc-react/theme";
-import { Button } from "@swc-react/button";
+import refreshIcon from "../../Assets/refresh-icon.svg";
+import copyrightIcon from "../../Assets/copyright-icon.svg";
+import visionIcon from "../../Assets/vision-icon.svg";
+import legalIcon from "../../Assets/legal-icon.svg";
+import menuIcon from "../../Assets/menu-icon.svg";
 import "./App.css";
 
 // INTERFACES (Keep existing ones)
@@ -266,7 +270,7 @@ const handleSaveSelectedImage = async () => {
                             </div>
                         )}
 
-                        {error && <div className="error-message" style={{color: "red", marginTop: "10px"}}>{error}</div>}
+                    {error && <div className="error-message">{error}</div>}
 
                         {viewMode === 'analysis' && mlResults && (
                             <div style={{ marginTop: "15px" }}>
