@@ -548,3 +548,193 @@ if result[0]['label'] == 'HATE':
 **Total Size**: ~3GB  
 **Performance**: Good balance of quality and speed  
 **Cost**: Free (open-source)
+
+---
+
+## 🚀 PART 9: IMPLEMENTED ML MODELS
+
+### Hate Speech Detection - GroNLP/hateBERT
+
+**Status**: ✅ Implemented and Active
+
+#### Model Details
+
+**Model**: `GroNLP/hateBERT`  
+**URL**: https://huggingface.co/GroNLP/hateBERT  
+**Type**: BERT-based text classification  
+**Task**: Hate speech detection  
+**Language**: English  
+
+#### Implementation
+
+The hate speech detection model is integrated via the Hugging Face Inference API and accessible through the ComplianceGuard Pro UI.
+
+**Service File**: `src/sandbox/mlService.ts`  
+**Sandbox Integration**: `src/sandbox/code.ts`  
+**UI Component**: `src/ui/components/App.tsx`
+
+#### Features
+
+- **Real-time Detection**: Analyzes text for hate speech with confidence scores
+- **Batch Processing**: Processes multiple text segments efficiently
+- **Result Caching**: Caches results to reduce API calls
+- **Rate Limiting**: Prevents API throttling with automatic delays
+- **Error Handling**: Robust error handling with user-friendly messages
+
+#### Usage
+
+**Configuration**:
+```typescript
+// Configure with Hugging Face API key
+await sandboxProxy.configureMLService({ 
+  apiKey: 'hf_xxxxxxxxxxxxx',
+  model: 'GroNLP/hateBERT'
+});
+```
+
+**Analyze Document**:
+```typescript
+// Analyze all text in current document
+const result = await sandboxProxy.analyzeDocumentForHateSpeech();
+
+// Result format:
+{
+  success: true,
+  results: [
+    {
+      text: "Sample text...",
+      result: {
+        label: "hate" | "not-hate",
+        score: 0.95,
+        isHateSpeech: true,
+        confidence: 95.0,
+        model: "GroNLP/hateBERT",
+        timestamp: 1234567890
+      }
+    }
+  ],
+  summary: {
+    totalAnalyzed: 10,
+    hateSpeechCount: 2,
+    cleanCount: 8,
+    averageConfidence: 87.5
+  }
+}
+```
+
+**Analyze Web Content**:
+```typescript
+// First crawl a webpage
+const crawlResult = await sandboxProxy.crawlWebPage('https://example.com');
+
+// Then analyze the crawled content
+const analysis = await sandboxProxy.analyzeCrawledContentForHateSpeech(crawlResult);
+```
+
+**Direct Text Analysis**:
+```typescript
+// Analyze specific text
+const result = await sandboxProxy.analyzeTextForHateSpeech("Your text here");
+
+// Result:
+{
+  label: "not-hate",
+  score: 0.98,
+  isHateSpeech: false,
+  confidence: 98.0,
+  model: "GroNLP/hateBERT",
+  timestamp: 1234567890
+}
+```
+
+#### Performance Characteristics
+
+- **Accuracy**: State-of-the-art on hate speech benchmarks
+- **Speed**: ~500ms per text segment (via API)
+- **Rate Limit**: 500ms delay between requests to avoid throttling
+- **Cache**: In-memory cache for up to 100 results
+- **Model Size**: Hosted on Hugging Face (no local storage needed)
+
+#### API Requirements
+
+**Free Tier**: Hugging Face Inference API  
+**API Key**: Required (get from https://huggingface.co/settings/tokens)  
+**Rate Limits**: Standard Hugging Face limits apply  
+**Cost**: Free for moderate usage
+
+#### Integration Points
+
+1. **Document Analysis**: Analyzes all text nodes in Adobe Express documents
+2. **Web Crawler**: Analyzes text from crawled web pages
+3. **Direct Input**: Analyzes arbitrary text strings
+
+#### Future Enhancements
+
+**Planned**:
+- Ensemble detection with multiple models
+- Gender bias detection (d4data/bias-detection-model)
+- Trademark detection (NER models)
+- Custom fine-tuning on domain-specific data
+- Offline model support for privacy
+
+**Ensemble Configuration** (Future):
+```typescript
+// Use multiple models for higher accuracy
+await sandboxProxy.configureMLService({
+  apiKey: 'hf_xxxxxxxxxxxxx',
+  models: [
+    'GroNLP/hateBERT',
+    'Hate-speech-CNERG/dehatebert-mono-english',
+    'cardiffnlp/twitter-roberta-base-hate-latest'
+  ],
+  votingStrategy: 'majority' // or 'weighted'
+});
+```
+
+#### Troubleshooting
+
+**Common Issues**:
+
+1. **"ML Service not configured"**
+   - Solution: Enter your Hugging Face API key in the UI configuration panel
+
+2. **"Invalid API key"**
+   - Solution: Verify your API key at https://huggingface.co/settings/tokens
+
+3. **"Rate limit exceeded"**
+   - Solution: Wait a moment and try again. The service automatically handles rate limiting.
+
+4. **"Request timeout"**
+   - Solution: The model may be loading. Wait 30 seconds and retry.
+
+#### Example Workflow
+
+```typescript
+// 1. Configure ML service
+await sandboxProxy.configureMLService({ 
+  apiKey: 'hf_xxxxxxxxxxxxx'
+});
+
+// 2. Extract text from document
+const extraction = await sandboxProxy.extractText();
+
+// 3. Analyze for hate speech
+const analysis = await sandboxProxy.analyzeDocumentForHateSpeech();
+
+// 4. Review results
+if (analysis.summary.hateSpeechCount > 0) {
+  console.log(`⚠️ Found ${analysis.summary.hateSpeechCount} instances of hate speech`);
+  
+  // Filter flagged content
+  const flagged = analysis.results.filter(r => r.result.isHateSpeech);
+  flagged.forEach(item => {
+    console.log(`Text: "${item.text}"`);
+    console.log(`Confidence: ${item.result.confidence}%`);
+  });
+}
+```
+
+---
+
+## 📚 Additional Resources
+```

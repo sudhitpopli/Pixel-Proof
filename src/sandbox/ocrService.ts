@@ -26,6 +26,9 @@ export interface OCRResult {
 /**
  * Initialize the Tesseract OCR worker
  * This should be called before performing OCR operations
+ * 
+ * NOTE: Adobe Express sandbox environment has limitations that prevent
+ * Tesseract.js from working (missing browser globals like URL, Blob, etc.)
  */
 export async function initializeOCR(): Promise<void> {
     if (worker) {
@@ -35,6 +38,20 @@ export async function initializeOCR(): Promise<void> {
 
     try {
         console.log("Initializing Tesseract OCR worker...");
+
+        // Check if we're in a restricted environment
+        // Use string-based typeof check to avoid TypeScript errors
+        const hasURL = typeof (globalThis as any)['URL'] !== 'undefined';
+        const hasBlob = typeof (globalThis as any)['Blob'] !== 'undefined';
+
+        if (!hasURL || !hasBlob) {
+            throw new Error(
+                "OCR cannot run in Adobe Express sandbox environment. " +
+                "The sandbox lacks browser APIs (URL, Blob) required by Tesseract.js. " +
+                "OCR functionality requires running in a full browser environment or using a server-side OCR service."
+            );
+        }
+
         worker = await createWorker('eng', 1, {
             logger: (m) => console.log('[Tesseract]', m)
         });
@@ -59,11 +76,12 @@ export async function extractTextFromImage(imageData: ImageDataLike): Promise<OC
         console.log(`Processing image: ${imageData.width}x${imageData.height}`);
 
         const result: RecognizeResult = await worker!.recognize(imageData);
+        const data: any = result.data; // Type assertion to access Tesseract data
 
         const ocrResult: OCRResult = {
-            text: result.data.text.trim(),
-            confidence: result.data.confidence,
-            words: result.data.words?.map(word => ({
+            text: data.text.trim(),
+            confidence: data.confidence,
+            words: data.words?.map((word: any) => ({
                 text: word.text,
                 confidence: word.confidence
             })) || []

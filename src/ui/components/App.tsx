@@ -39,6 +39,19 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [error, setError] = useState<string | null>(null);
     const [showRawText, setShowRawText] = useState(false);
 
+    // Web Crawler state
+    const [crawlUrl, setCrawlUrl] = useState<string>('');
+    const [crawlResult, setCrawlResult] = useState<any>(null);
+    const [isCrawling, setIsCrawling] = useState(false);
+    const [crawlError, setCrawlError] = useState<string | null>(null);
+
+    // ML Detection state
+    const [mlApiKey, setMlApiKey] = useState<string>('');
+    const [mlConfigured, setMlConfigured] = useState<boolean>(false);
+    const [mlResults, setMlResults] = useState<any>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [mlError, setMlError] = useState<string | null>(null);
+
     const handleExtractText = async () => {
         setIsExtracting(true);
         setError(null);
@@ -118,6 +131,131 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
+    const handleCrawlWebPage = async () => {
+        if (!crawlUrl.trim()) {
+            setCrawlError('Please enter a valid URL');
+            return;
+        }
+
+        setIsCrawling(true);
+        setCrawlError(null);
+        setCrawlResult(null);
+
+        try {
+            console.log(`Crawling web page: ${crawlUrl}`);
+            const result = await sandboxProxy.crawlWebPage(crawlUrl);
+
+            console.log('Crawl result:', result);
+
+            if (result.error) {
+                setCrawlError(result.error);
+            } else {
+                setCrawlResult(result);
+            }
+        } catch (err) {
+            console.error('Failed to crawl web page:', err);
+            setCrawlError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setIsCrawling(false);
+        }
+    };
+
+    const handleConfigureML = async () => {
+        if (!mlApiKey.trim()) {
+            setMlError('Please enter a valid Hugging Face API key');
+            return;
+        }
+
+        try {
+            await sandboxProxy.configureMLService({ apiKey: mlApiKey });
+            setMlConfigured(true);
+            setMlError(null);
+            console.log('ML Service configured successfully');
+
+            // Save to localStorage for persistence
+            localStorage.setItem('hf_api_key', mlApiKey);
+        } catch (err) {
+            console.error('Failed to configure ML service:', err);
+            setMlError(err instanceof Error ? err.message : String(err));
+        }
+    };
+
+    const handleAnalyzeDocument = async () => {
+        if (!mlConfigured) {
+            setMlError('Please configure your Hugging Face API key first');
+            return;
+        }
+
+        setIsAnalyzing(true);
+        setMlError(null);
+        setMlResults(null);
+
+        try {
+            console.log('Analyzing document for hate speech...');
+            const result = await sandboxProxy.analyzeDocumentForHateSpeech();
+
+            console.log('Analysis result:', result);
+
+            if (result.success) {
+                setMlResults(result);
+            } else {
+                setMlError(result.error || 'Analysis failed');
+            }
+        } catch (err) {
+            console.error('Failed to analyze document:', err);
+            setMlError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const handleAnalyzeCrawledContent = async () => {
+        if (!mlConfigured) {
+            setMlError('Please configure your Hugging Face API key first');
+            return;
+        }
+
+        if (!crawlResult) {
+            setMlError('Please crawl a website first');
+            return;
+        }
+
+        setIsAnalyzing(true);
+        setMlError(null);
+        setMlResults(null);
+
+        try {
+            console.log('Analyzing crawled content for hate speech...');
+            const result = await sandboxProxy.analyzeCrawledContentForHateSpeech(crawlResult);
+
+            console.log('Analysis result:', result);
+
+            if (result.success) {
+                setMlResults(result);
+            } else {
+                setMlError(result.error || 'Analysis failed');
+            }
+        } catch (err) {
+            console.error('Failed to analyze crawled content:', err);
+            setMlError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    // Load saved API key on mount
+    React.useEffect(() => {
+        const savedKey = localStorage.getItem('hf_api_key');
+        if (savedKey) {
+            setMlApiKey(savedKey);
+            sandboxProxy.configureMLService({ apiKey: savedKey }).then(() => {
+                setMlConfigured(true);
+            }).catch((err: any) => {
+                console.error('Failed to restore ML config:', err);
+            });
+        }
+    }, [sandboxProxy]);
+
     return (
         <Theme system="express" scale="medium" color="light">
             <div className="compliance-container">
@@ -155,6 +293,28 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                 color: "#c00"
                             }}>
                                 <strong>Error:</strong> {error}
+
+                                {error.includes("sandbox environment") && (
+                                    <div style={{
+                                        marginTop: "10px",
+                                        padding: "10px",
+                                        backgroundColor: "#fff3cd",
+                                        border: "1px solid #ffc107",
+                                        borderRadius: "4px",
+                                        color: "#856404"
+                                    }}>
+                                        <strong>ℹ️ Sandbox Limitation:</strong>
+                                        <p style={{ margin: "5px 0 0 0", fontSize: "13px" }}>
+                                            Adobe Express sandbox environment doesn't support browser APIs needed for OCR.
+                                            Text node extraction still works! For OCR functionality, consider:
+                                        </p>
+                                        <ul style={{ margin: "5px 0 0 20px", fontSize: "13px" }}>
+                                            <li>Using a server-side OCR API</li>
+                                            <li>Exporting images and processing externally</li>
+                                            <li>Waiting for Adobe Express SDK OCR support</li>
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -274,9 +434,345 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                             </div>
                         )}
                     </div>
+
+                    {/* Web Crawler Section */}
+                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "30px", borderTop: "2px solid #e0e0e0" }}>
+                        <h2>🌐 Web Crawler</h2>
+                        <p>Extract text and images from any website for compliance analysis</p>
+
+                        <div style={{ marginTop: "20px" }}>
+                            <label htmlFor="crawl-url" style={{ display: "block", marginBottom: "8px", fontWeight: "bold" }}>
+                                Website URL:
+                            </label>
+                            <div style={{ display: "flex", gap: "10px" }}>
+                                <input
+                                    id="crawl-url"
+                                    type="url"
+                                    value={crawlUrl}
+                                    onChange={(e) => setCrawlUrl(e.target.value)}
+                                    placeholder="https://example.com"
+                                    disabled={isCrawling}
+                                    style={{
+                                        flex: 1,
+                                        padding: "10px",
+                                        fontSize: "14px",
+                                        border: "1px solid #ccc",
+                                        borderRadius: "4px"
+                                    }}
+                                    onKeyPress={(e) => {
+                                        if (e.key === 'Enter' && !isCrawling) {
+                                            handleCrawlWebPage();
+                                        }
+                                    }}
+                                />
+                                <Button size="m" onClick={handleCrawlWebPage} disabled={isCrawling} variant="primary">
+                                    {isCrawling ? "Crawling..." : "🔍 Crawl Website"}
+                                </Button>
+                            </div>
+                        </div>
+
+                        {crawlError && (
+                            <div className="error-message" style={{
+                                marginTop: "15px",
+                                padding: "12px",
+                                backgroundColor: "#fee",
+                                border: "1px solid #fcc",
+                                borderRadius: "6px",
+                                color: "#c00",
+                                fontSize: "14px"
+                            }}>
+                                <strong>Crawl Error:</strong> {crawlError}
+                            </div>
+                        )}
+
+                        {crawlResult && (
+                            <div className="crawl-results" style={{ marginTop: "25px" }}>
+                                <h3>📄 {crawlResult.title || 'Crawl Results'}</h3>
+
+                                {/* Summary */}
+                                <div style={{
+                                    padding: "12px",
+                                    backgroundColor: "#e8f5e9",
+                                    border: "1px solid #4caf50",
+                                    borderRadius: "4px",
+                                    marginBottom: "20px"
+                                }}>
+                                    <strong>✅ Crawl Successful</strong>
+                                    <div style={{ marginTop: "8px", fontSize: "13px" }}>
+                                        • {crawlResult.text.headings.length} headings<br />
+                                        • {crawlResult.text.paragraphs.length} paragraphs<br />
+                                        • {crawlResult.images.length} images<br />
+                                        • {crawlResult.text.links.length} links
+                                    </div>
+                                </div>
+
+                                {/* Text Content */}
+                                {crawlResult.text.fullText && (
+                                    <div style={{ marginBottom: "20px" }}>
+                                        <h4>📝 Extracted Text</h4>
+                                        <div style={{
+                                            maxHeight: "300px",
+                                            overflowY: "auto",
+                                            border: "1px solid #ddd",
+                                            borderRadius: "6px",
+                                            padding: "15px",
+                                            backgroundColor: "#f9f9f9",
+                                            fontSize: "13px",
+                                            lineHeight: "1.6"
+                                        }}>
+                                            {/* Headings */}
+                                            {crawlResult.text.headings.length > 0 && (
+                                                <div style={{ marginBottom: "15px" }}>
+                                                    <strong style={{ color: "#1976d2" }}>Headings:</strong>
+                                                    <ul style={{ marginTop: "5px", paddingLeft: "20px" }}>
+                                                        {crawlResult.text.headings.slice(0, 10).map((heading: string, idx: number) => (
+                                                            <li key={idx}>{heading}</li>
+                                                        ))}
+                                                        {crawlResult.text.headings.length > 10 && (
+                                                            <li style={{ color: "#666" }}>... and {crawlResult.text.headings.length - 10} more</li>
+                                                        )}
+                                                    </ul>
+                                                </div>
+                                            )}
+
+                                            {/* Full Text Preview */}
+                                            <div>
+                                                <strong style={{ color: "#1976d2" }}>Full Text Preview:</strong>
+                                                <p style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
+                                                    {crawlResult.text.fullText.substring(0, 500)}
+                                                    {crawlResult.text.fullText.length > 500 && '...'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Images */}
+                                {crawlResult.images.length > 0 && (
+                                    <div>
+                                        <h4>🖼️ Extracted Images ({crawlResult.images.length})</h4>
+                                        <div style={{
+                                            maxHeight: "300px",
+                                            overflowY: "auto",
+                                            border: "1px solid #ddd",
+                                            borderRadius: "6px",
+                                            padding: "15px",
+                                            backgroundColor: "#f9f9f9"
+                                        }}>
+                                            {crawlResult.images.slice(0, 20).map((img: any, idx: number) => (
+                                                <div key={idx} style={{
+                                                    padding: "10px",
+                                                    marginBottom: "10px",
+                                                    backgroundColor: "white",
+                                                    border: "1px solid #e0e0e0",
+                                                    borderRadius: "4px",
+                                                    fontSize: "13px"
+                                                }}>
+                                                    <div style={{ marginBottom: "5px" }}>
+                                                        <strong>#{idx + 1}</strong>
+                                                        {img.alt && <span style={{ marginLeft: "10px", color: "#666" }}>Alt: {img.alt}</span>}
+                                                    </div>
+                                                    <div style={{
+                                                        fontSize: "12px",
+                                                        color: "#1976d2",
+                                                        wordBreak: "break-all"
+                                                    }}>
+                                                        {img.url}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {crawlResult.images.length > 20 && (
+                                                <div style={{ padding: "10px", color: "#666", textAlign: "center" }}>
+                                                    ... and {crawlResult.images.length - 20} more images
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {!crawlResult && !crawlError && !isCrawling && (
+                            <div className="info-box" style={{ marginTop: "20px" }}>
+                                <h4>How Web Crawler Works:</h4>
+                                <ul>
+                                    <li>🌐 <strong>Enter URL:</strong> Provide any public website URL</li>
+                                    <li>📄 <strong>Extract Content:</strong> Automatically extracts text, headings, and paragraphs</li>
+                                    <li>🖼️ <strong>Find Images:</strong> Discovers all images with their URLs and alt text</li>
+                                    <li>🔍 <strong>Analyze:</strong> Use extracted content for compliance checking</li>
+                                </ul>
+                                <p style={{ marginTop: "15px", color: "#666", fontSize: "13px" }}>
+                                    <strong>Note:</strong> The crawler respects CORS policies and may use a proxy for restricted sites.
+                                    JavaScript-rendered content (SPAs) may not be fully captured.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ML Detection Section */}
+                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "30px", borderTop: "2px solid #e0e0e0" }}>
+                        <h2>🤖 ML Hate Speech Detection</h2>
+                        <p>Analyze text for hate speech using BERT-based AI models from Hugging Face</p>
+
+                        {/* Configuration */}
+                        {!mlConfigured && (
+                            <div style={{ marginTop: "20px", padding: "15px", backgroundColor: "#fff3cd", border: "1px solid #ffc107", borderRadius: "6px" }}>
+                                <h4 style={{ marginTop: 0 }}>⚙️ Configuration Required</h4>
+                                <p style={{ fontSize: "13px", margin: "10px 0" }}>
+                                    Get a free API key from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" style={{ color: "#1976d2" }}>Hugging Face</a>
+                                </p>
+                                <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                                    <input
+                                        type="password"
+                                        value={mlApiKey}
+                                        onChange={(e) => setMlApiKey(e.target.value)}
+                                        placeholder="hf_xxxxxxxxxxxxx"
+                                        style={{
+                                            flex: 1,
+                                            padding: "10px",
+                                            fontSize: "14px",
+                                            border: "1px solid #ccc",
+                                            borderRadius: "4px"
+                                        }}
+                                    />
+                                    <Button size="m" onClick={handleConfigureML} variant="primary">
+                                        💾 Save Configuration
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {mlConfigured && (
+                            <div style={{ marginTop: "20px", padding: "12px", backgroundColor: "#e8f5e9", border: "1px solid #4caf50", borderRadius: "6px" }}>
+                                <strong>✅ ML Service Configured</strong>
+                                <span style={{ marginLeft: "10px", fontSize: "13px", color: "#666" }}>Using GroNLP/hateBERT model</span>
+                            </div>
+                        )}
+
+                        {/* Analysis Buttons */}
+                        <div style={{ marginTop: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                            <Button
+                                size="m"
+                                onClick={handleAnalyzeDocument}
+                                disabled={!mlConfigured || isAnalyzing}
+                                variant="primary"
+                            >
+                                {isAnalyzing ? "Analyzing..." : "🔍 Analyze Document for Hate Speech"}
+                            </Button>
+
+                            {crawlResult && (
+                                <Button
+                                    size="m"
+                                    onClick={handleAnalyzeCrawledContent}
+                                    disabled={!mlConfigured || isAnalyzing}
+                                >
+                                    {isAnalyzing ? "Analyzing..." : "🌐 Analyze Crawled Content"}
+                                </Button>
+                            )}
+                        </div>
+
+                        {/* Error Display */}
+                        {mlError && (
+                            <div style={{
+                                marginTop: "15px",
+                                padding: "12px",
+                                backgroundColor: "#fee",
+                                border: "1px solid #fcc",
+                                borderRadius: "6px",
+                                color: "#c00",
+                                fontSize: "14px"
+                            }}>
+                                <strong>Error:</strong> {mlError}
+                            </div>
+                        )}
+
+                        {/* Results Display */}
+                        {mlResults && mlResults.success && (
+                            <div style={{ marginTop: "25px" }}>
+                                <h3>📊 Analysis Results</h3>
+
+                                {/* Summary */}
+                                <div style={{
+                                    padding: "15px",
+                                    backgroundColor: mlResults.summary.hateSpeechCount > 0 ? "#fee" : "#e8f5e9",
+                                    border: `1px solid ${mlResults.summary.hateSpeechCount > 0 ? '#fcc' : '#4caf50'}`,
+                                    borderRadius: "6px",
+                                    marginBottom: "20px"
+                                }}>
+                                    <div style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "10px" }}>
+                                        {mlResults.summary.hateSpeechCount > 0 ? "⚠️ Hate Speech Detected" : "✅ No Hate Speech Detected"}
+                                    </div>
+                                    <div style={{ fontSize: "14px" }}>
+                                        • Total Analyzed: {mlResults.summary.totalAnalyzed}<br />
+                                        • Hate Speech: {mlResults.summary.hateSpeechCount}<br />
+                                        • Clean: {mlResults.summary.cleanCount}<br />
+                                        • Average Confidence: {mlResults.summary.averageConfidence.toFixed(1)}%
+                                    </div>
+                                </div>
+
+                                {/* Detailed Results */}
+                                <div style={{
+                                    maxHeight: "400px",
+                                    overflowY: "auto",
+                                    border: "1px solid #ddd",
+                                    borderRadius: "6px",
+                                    padding: "15px",
+                                    backgroundColor: "#f9f9f9"
+                                }}>
+                                    {mlResults.results.map((item: any, index: number) => (
+                                        <div key={index} style={{
+                                            padding: "12px",
+                                            marginBottom: "10px",
+                                            backgroundColor: item.result.isHateSpeech ? "#fee" : "white",
+                                            border: `2px solid ${item.result.isHateSpeech ? '#f44336' : '#e0e0e0'}`,
+                                            borderRadius: "6px"
+                                        }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                                                <span style={{
+                                                    fontSize: "12px",
+                                                    fontWeight: "bold",
+                                                    color: item.result.isHateSpeech ? '#f44336' : '#4caf50'
+                                                }}>
+                                                    {item.result.isHateSpeech ? "⚠️ HATE SPEECH" : "✅ CLEAN"}
+                                                </span>
+                                                <span style={{ fontSize: "12px", color: "#666" }}>
+                                                    Confidence: {item.result.confidence.toFixed(1)}%
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: "14px", lineHeight: "1.5" }}>
+                                                {item.text}
+                                            </div>
+                                            {item.error && (
+                                                <div style={{ marginTop: "8px", fontSize: "12px", color: "#c00" }}>
+                                                    Error: {item.error}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {!mlResults && !mlError && !isAnalyzing && mlConfigured && (
+                            <div className="info-box" style={{ marginTop: "20px" }}>
+                                <h4>How ML Detection Works:</h4>
+                                <ul>
+                                    <li>🤖 <strong>BERT Model:</strong> Uses GroNLP/hateBERT from Hugging Face</li>
+                                    <li>📝 <strong>Document Analysis:</strong> Analyzes all text in your document</li>
+                                    <li>🌐 <strong>Web Content:</strong> Analyzes crawled website content</li>
+                                    <li>📊 <strong>Confidence Scores:</strong> Shows detection confidence for each segment</li>
+                                    <li>⚡ <strong>Fast Processing:</strong> Results cached for repeated analysis</li>
+                                </ul>
+                                <p style={{ marginTop: "15px", color: "#666", fontSize: "13px" }}>
+                                    <strong>Note:</strong> Analysis may take a few moments as the model processes each text segment.
+                                    Rate limiting applies to avoid API throttling.
+                                </p>
+                            </div>
+                        )}
+                    </div>
                 </main>
             </div>
-        </Theme>
+        </Theme >
     );
 };
 

@@ -106,24 +106,18 @@ async function getImageDataFromNode(node: any): Promise<ImageDataLike | null> {
             return null;
         }
 
-        // Create a canvas to extract image data
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
+        // Note: Adobe Express SDK sandbox doesn't support DOM operations like document.createElement
+        // Image export would need to use Adobe Express SDK-specific methods
+        // For now, this is a placeholder for future implementation
 
-        if (!ctx) {
-            console.error("Failed to get canvas context");
-            return null;
-        }
+        // Example of what would be needed (not currently supported):
+        // const canvas = document.createElement('canvas');
+        // canvas.width = width;
+        // canvas.height = height;
+        // const ctx = canvas.getContext('2d');
 
-        // Try to get image data from the node
-        // Note: This is a simplified approach. In a real implementation,
-        // you may need to use Adobe Express SDK methods to export the image
-
-        // For now, we'll create a placeholder that would need to be
-        // replaced with actual Adobe Express image export functionality
         console.log(`Image node ${node.id}: ${width}x${height}`);
+        console.log(`Note: Image data extraction requires Adobe Express SDK image export API`);
 
         // This is where you'd export the actual image from Adobe Express
         // The exact method depends on the Adobe Express SDK capabilities
