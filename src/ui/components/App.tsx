@@ -47,6 +47,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
     // ML Detection state
     const [mlApiKey, setMlApiKey] = useState<string>('');
+    const [mlBackendUrl, setMlBackendUrl] = useState<string>(''); // For server-side proxy
     const [mlConfigured, setMlConfigured] = useState<boolean>(false);
     const [mlResults, setMlResults] = useState<any>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -243,12 +244,19 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
-    // Load saved API key on mount
+    // Load saved config on mount
     React.useEffect(() => {
         const savedKey = localStorage.getItem('hf_api_key');
-        if (savedKey) {
-            setMlApiKey(savedKey);
-            sandboxProxy.configureMLService({ apiKey: savedKey }).then(() => {
+        const savedBackend = localStorage.getItem('ml_backend_url');
+
+        if (savedKey) setMlApiKey(savedKey);
+        if (savedBackend) setMlBackendUrl(savedBackend);
+
+        if (savedKey || savedBackend) {
+            sandboxProxy.configureMLService({
+                apiKey: savedKey || undefined,
+                backendUrl: savedBackend || undefined
+            }).then(() => {
                 setMlConfigured(true);
             }).catch((err: any) => {
                 console.error('Failed to restore ML config:', err);
@@ -617,35 +625,93 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         {/* Configuration */}
                         {!mlConfigured && (
                             <div style={{ marginTop: "20px", padding: "15px", backgroundColor: "#fff3cd", border: "1px solid #ffc107", borderRadius: "6px" }}>
-                                <h4 style={{ marginTop: 0 }}>⚙️ Configuration Required</h4>
-                                <p style={{ fontSize: "13px", margin: "10px 0" }}>
-                                    Get a free API key from <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" style={{ color: "#1976d2" }}>Hugging Face</a>
-                                </p>
-                                <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                                <h4 style={{ marginTop: 0, marginBottom: "10px" }}>⚙️ Configuration Required</h4>
+
+                                {/* Option 1: Backend Server (Recommended) */}
+                                <div style={{ marginBottom: "15px" }}>
+                                    <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "5px" }}>
+                                        Option 1: Backend Server URL (Recommended)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={mlBackendUrl}
+                                        onChange={(e) => setMlBackendUrl(e.target.value)}
+                                        placeholder="http://localhost:5000"
+                                        style={{
+                                            width: "100%",
+                                            padding: "8px",
+                                            fontSize: "14px",
+                                            border: "1px solid #ccc",
+                                            borderRadius: "4px"
+                                        }}
+                                    />
+                                    <p style={{ fontSize: "11px", color: "#666", marginTop: "3px" }}>
+                                        Use your own Python server. No user API key needed.
+                                    </p>
+                                </div>
+
+                                <div style={{ textAlign: "center", margin: "10px 0", fontSize: "12px", color: "#999" }}>
+                                    - OR -
+                                </div>
+
+                                {/* Option 2: Direct API Key */}
+                                <div style={{ marginBottom: "15px" }}>
+                                    <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "5px" }}>
+                                        Option 2: Hugging Face API Key
+                                    </label>
                                     <input
                                         type="password"
                                         value={mlApiKey}
                                         onChange={(e) => setMlApiKey(e.target.value)}
                                         placeholder="hf_xxxxxxxxxxxxx"
                                         style={{
-                                            flex: 1,
-                                            padding: "10px",
+                                            width: "100%",
+                                            padding: "8px",
                                             fontSize: "14px",
                                             border: "1px solid #ccc",
                                             borderRadius: "4px"
                                         }}
                                     />
-                                    <Button size="m" onClick={handleConfigureML} variant="primary">
-                                        💾 Save Configuration
-                                    </Button>
+                                    <p style={{ fontSize: "11px", color: "#666", marginTop: "3px" }}>
+                                        Required if not using backend server. <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">Get Token</a>
+                                    </p>
                                 </div>
+
+                                <Button size="m" onClick={handleConfigureML} variant="primary" style={{ width: "100%" }}>
+                                    💾 Save Configuration
+                                </Button>
                             </div>
                         )}
 
                         {mlConfigured && (
                             <div style={{ marginTop: "20px", padding: "12px", backgroundColor: "#e8f5e9", border: "1px solid #4caf50", borderRadius: "6px" }}>
-                                <strong>✅ ML Service Configured</strong>
-                                <span style={{ marginLeft: "10px", fontSize: "13px", color: "#666" }}>Using GroNLP/hateBERT model</span>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                        <strong>✅ ML Service Configured</strong>
+                                        <div style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+                                            {mlBackendUrl ? `Using Server: ${mlBackendUrl}` : 'Using Direct API Key'}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setMlConfigured(false);
+                                            setMlBackendUrl('');
+                                            setMlApiKey('');
+                                            localStorage.removeItem('hf_api_key');
+                                            localStorage.removeItem('ml_backend_url');
+                                        }}
+                                        style={{
+                                            background: "none",
+                                            border: "none",
+                                            color: "#d32f2f",
+                                            cursor: "pointer",
+                                            fontSize: "12px",
+                                            textDecoration: "underline"
+                                        }}
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
                             </div>
                         )}
 

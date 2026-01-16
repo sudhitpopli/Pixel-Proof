@@ -33,7 +33,14 @@ CORS(app)  # Enable CORS for Adobe Express add-on
 # Configuration
 HF_API_KEY = os.getenv('HF_API_KEY')
 HF_MODEL = os.getenv('HF_MODEL', 'GroNLP/hateBERT')
-HF_API_URL = f'https://api-inference.huggingface.co/models/{HF_MODEL}'
+HF_API_URL = f'https://router.huggingface.co/hf-inference/models/{HF_MODEL}'
+
+print(f"DEBUG: Loaded HF_MODEL = {HF_MODEL}")
+print(f"DEBUG: Using API URL = {HF_API_URL}")
+if HF_API_KEY:
+    print(f"DEBUG: API Key present (starts with {HF_API_KEY[:4]}...)")
+else:
+    print("DEBUG: WARNING - No API Key found!")
 
 # Rate limiting
 last_request_time = 0
@@ -86,20 +93,81 @@ def analyze_text_hf(text):
             results = response.json()
             
             # Process results
+            # Handle different model output formats
+            
+            # Case 1: Multi-label toxicity models (e.g., unitary/toxic-bert)
+            # Returns: [[{'label': 'toxic', 'score': 0.9}, {'label': 'insult', 'score': 0.8}, ...]]
+            # We consider it "hate speech/toxic" if any major negative category is high
+            multi_label_scores = {}
+            is_multi_label = False
+            
+            first_result = results[0] if isinstance(results, list) else results
+            if isinstance(first_result, list): # List of lists usually means multi-label or multi-class
+                flat_results = first_result
+                is_multi_label = True
+            else:
+                flat_results = results if isinstance(results, list) else [results]
+
+            # Check if this looks like toxic-bert output (labels like 'toxic', 'insult', etc.)
+            toxic_labels = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
+            
+            max_score = 0
+            primary_label = 'neutral'
+            
+            for item in flat_results:
+                label = item['label'].lower()
+                score = item['score']
+                
+                if label in toxic_labels:
+                    is_multi_label = True # Confirmed toxic-bert style
+                    if score > max_score:
+                        max_score = score
+                        primary_label = label
+                
+                # Also handle standard binary hate/not-hate
+                if 'hate' in label and 'not' not in label and 'identity_hate' not in label:
+                     if score > max_score:
+                        max_score = score
+                        primary_label = label
+            
+            if is_multi_label:
+                # For toxic-bert, if any toxicity score is > 0.5, flag it (default threshold, can adjust)
+                # But to avoid false positives like "Hi" (which toxic-bert usually scores near 0),
+                # we rely on the score. "Hi" usually < 0.05. "You are a freak" > 0.8
+                
+                is_hate = max_score > 0.5 # Standard threshold
+                
+                return {
+                    'label': primary_label,
+                    'score': max_score,
+                    'isHateSpeech': is_hate,
+                    'confidence': max_score * 100,
+                    'model': HF_MODEL,
+                    'timestamp': int(time.time() * 1000)
+                }
+            
+            # Case 2: Binary Hate/Not-Hate (e.g. hateBERT, roberta-hate-speech)
             hate_label = None
             not_hate_label = None
             
-            for item in results[0] if isinstance(results[0], list) else results:
+            for item in flat_results:
                 label = item['label'].lower()
                 if 'hate' in label and 'not' not in label:
                     hate_label = item
-                elif 'not' in label or 'normal' in label:
+                elif 'not' in label or 'normal' in label or 'nothate' in label:
                     not_hate_label = item
             
             # Determine if hate speech
-            is_hate = hate_label and hate_label['score'] > (not_hate_label['score'] if not_hate_label else 0)
-            primary = hate_label if is_hate else (not_hate_label or results[0][0])
-            
+            if hate_label and not_hate_label:
+                is_hate = hate_label['score'] > not_hate_label['score']
+                primary = hate_label if is_hate else not_hate_label
+            elif hate_label:
+                 is_hate = hate_label['score'] > 0.5
+                 primary = hate_label
+            else:
+                 is_hate = False
+                 primary = flat_results[0]
+
             return {
                 'label': primary['label'],
                 'score': primary['score'],
