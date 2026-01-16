@@ -55,6 +55,221 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [claimResult, setClaimResult] = useState<any>(null);
     const [isAnalyzingClaims, setIsAnalyzingClaims] = useState(false);
 
+    // Page-level OCR state
+    const [pageOcrText, setPageOcrText] = useState<string | null>(null);
+    const [isPageOcrProcessing, setIsPageOcrProcessing] = useState(false);
+
+    const handleAdvanceSpellCheck = async () => {
+        console.log("------------------------------------------------");
+        console.log("🚀 START: Advance Spell Check (Unified Workflow)");
+        setIsPageOcrProcessing(true);
+        setError(null);
+        setPageOcrText(null);
+        setMlResults(null);
+        setMlError(null);
+
+        try {
+            // ==========================================
+            // STEP 1: CAPTURE IMAGE (OCR)
+            // ==========================================
+            console.log("📸 [Step 1] Requesting Page Rendition from Adobe SDK...");
+
+            if (!addOnUISdk.app.document.createRenditions) {
+                throw new Error("SDK Error: createRenditions API is not available.");
+            }
+
+            const renditionResults = await addOnUISdk.app.document.createRenditions({
+                range: "currentPage",
+                format: "image/png"
+            });
+            console.log("✅ [Step 1] Rendition results received.", renditionResults);
+
+            if (!renditionResults || renditionResults.length === 0) {
+                throw new Error("SDK Error: No renditions returned.");
+            }
+
+            const blob = renditionResults[0].blob;
+            console.log(`📦 [Step 1] Blob created. Type: ${blob.type}, Size: ${blob.size} bytes`);
+
+
+            // ==========================================
+            // STEP 2: SEND TO GEMINI (OCR)
+            // ==========================================
+            console.log("📡 [Step 2] Sending image to Gemini OCR (/analyze-image)...");
+            const formData = new FormData();
+            formData.append("image", blob, "page-rendition.png");
+
+            const ocrServerUrl = "http://localhost:3000/analyze-image";
+            console.log(`🔗 [Step 2] POST ${ocrServerUrl}`);
+
+            const ocrResponse = await fetch(ocrServerUrl, {
+                method: "POST",
+                body: formData
+            });
+            console.log(`📨 [Step 2] Response Status: ${ocrResponse.status} ${ocrResponse.statusText}`);
+
+            if (!ocrResponse.ok) {
+                const errText = await ocrResponse.text();
+                console.error("❌ [Step 2] Server Error:", errText);
+                throw new Error(`Gemini OCR Failed (${ocrResponse.status}): ${errText}`);
+            }
+
+            const ocrData = await ocrResponse.json();
+            console.log("✅ [Step 2] OCR JSON Parsed:", ocrData);
+
+            if (ocrData.error) {
+                throw new Error(`Gemini OCR Error: ${ocrData.error}`);
+            }
+
+            const extractedText = ocrData.result;
+            setPageOcrText(extractedText);
+            console.log("📝 [Step 2] Extracted Text:", extractedText.substring(0, 50) + "...");
+
+
+            // ==========================================
+            // STEP 3: SEND TO HATEBERT (ANALYSIS)
+            // ==========================================
+            console.log("🤖 [Step 3] Sending text to HateBERT Analysis (/analyze-hate)...");
+
+            const analysisUrl = "http://localhost:3000/analyze-hate";
+            console.log(`🔗 [Step 3] POST ${analysisUrl}`);
+
+            const analysisResponse = await fetch(analysisUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: extractedText })
+            });
+            console.log(`📨 [Step 3] Response Status: ${analysisResponse.status} ${analysisResponse.statusText}`);
+
+            if (!analysisResponse.ok) {
+                const errText = await analysisResponse.text();
+                console.error("❌ [Step 3] Analysis Error:", errText);
+                throw new Error(`HateBERT Analysis Failed (${analysisResponse.status}): ${errText}`);
+            }
+
+            const analysisData = await analysisResponse.json();
+            console.log("✅ [Step 3] Analysis JSON Parsed:", analysisData);
+
+            // Parse scores from dictionary: { "hate_speech": 0.9, "offensive": 0.1, ... }
+            const scores = analysisData.scores || {};
+            let maxLabel = "unknown";
+            let maxScore = 0;
+
+            for (const [label, score] of Object.entries(scores)) {
+                if (typeof score === 'number' && score > maxScore) {
+                    maxScore = score;
+                    maxLabel = label;
+                }
+            }
+
+            const isHateSpeech = maxLabel === 'hate_speech' || maxLabel === 'offensive_language';
+
+            // Structure the result to match what UI expects for 'mlResults'
+            const formattedResult = {
+                success: true,
+                results: [{
+                    text: extractedText,
+                    result: {
+                        label: maxLabel,
+                        score: maxScore,
+                        isHateSpeech: isHateSpeech,
+                        confidence: maxScore * 100
+                    }
+                }],
+                summary: {
+                    hateSpeechCount: isHateSpeech ? 1 : 0,
+                    cleanCount: isHateSpeech ? 0 : 1
+                }
+            };
+
+            console.log("📊 [Step 3] Formatted Result:", formattedResult);
+
+            setMlResults(formattedResult);
+            console.log("🎉 [COMPLETED] Advance Spell Check Finished Successfully.");
+
+        } catch (err: any) {
+            console.error("❌ [CRITICAL FAILURE] in handleAdvanceSpellCheck:", err);
+            setError(`Advance Check Failed: ${err.message}`);
+            // Also set ML error to show in that section if relevant
+            setMlError(err.message);
+        } finally {
+            setIsPageOcrProcessing(false);
+            console.log("🏁 END: handleAdvanceSpellCheck");
+            console.log("------------------------------------------------");
+        }
+    };
+
+    const handleExtractPageOCR = async () => {
+        console.log("------------------------------------------------");
+        console.log("🚀 START: handleExtractPageOCR");
+        setIsPageOcrProcessing(true);
+        setError(null);
+        setPageOcrText(null);
+
+        try {
+            // Step 1: Export Page Rendition
+            console.log("📸 Step 1: Requesting Page Rendition from Adobe SDK...");
+
+            if (!addOnUISdk.app.document.createRenditions) {
+                throw new Error("createRenditions API is not available in this SDK version.");
+            }
+
+            const renditionResults = await addOnUISdk.app.document.createRenditions({
+                range: "currentPage",
+                format: "image/png"
+            });
+            console.log("✅ Step 1 Complete: Rendition results received.", renditionResults);
+
+            if (!renditionResults || renditionResults.length === 0) {
+                throw new Error("No renditions returned by SDK.");
+            }
+
+            const blob = renditionResults[0].blob;
+            console.log(`📦 Step 2: Blob obtained. Type: ${blob.type}, Size: ${blob.size} bytes`);
+
+            // Step 3: Prepare Fetch
+            console.log("📡 Step 3: Preparing upload to server...");
+            const formData = new FormData();
+            formData.append("image", blob, "page-rendition.png");
+
+            // Server URL - usually localhost:3000 unless configured otherwise
+            const serverUrl = "http://localhost:3000/analyze-image";
+            console.log(`🔗 Target URL: ${serverUrl}`);
+
+            // Step 4: Execute Fetch
+            const response = await fetch(serverUrl, {
+                method: "POST",
+                body: formData
+            });
+            console.log(`📨 Step 4: Response received. Status: ${response.status} ${response.statusText}`);
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error("❌ Server Error Response:", errText);
+                throw new Error(`Server responded with ${response.status}: ${errText}`);
+            }
+
+            // Step 5: Parse JSON
+            const data = await response.json();
+            console.log("✅ Step 5: JSON Parsed:", data);
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            setPageOcrText(data.result);
+            console.log("🎉 SUCCESS: OCR text updated in state.");
+
+        } catch (err: any) {
+            console.error("❌ ERROR in handleExtractPageOCR:", err);
+            setError(`OCR Failed: ${err.message}`);
+        } finally {
+            setIsPageOcrProcessing(false);
+            console.log("🏁 END: handleExtractPageOCR");
+            console.log("------------------------------------------------");
+        }
+    };
+
     const handleExtractText = async () => {
         setIsExtracting(true);
         setError(null);
@@ -325,16 +540,8 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         <p>Choose an extraction method below:</p>
 
                         <div className="button-group" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                            <Button size="m" onClick={handleExtractText} disabled={isExtracting}>
-                                {isExtracting ? "Extracting..." : "📝 Extract Text (Text Nodes Only)"}
-                            </Button>
-
-                            <Button size="m" onClick={handleExtractWithOCR} disabled={isExtracting} variant="primary">
-                                {isExtracting ? "Processing..." : "🔍 Extract All Text (with OCR)"}
-                            </Button>
-
-                            <Button size="m" onClick={handleExtractImagesOnly} disabled={isExtracting}>
-                                {isExtracting ? "Processing..." : "�️ Extract from Images Only (OCR)"}
+                            <Button size="m" onClick={handleAdvanceSpellCheck} disabled={isPageOcrProcessing} variant="cta">
+                                {isPageOcrProcessing ? "🔍 Scanning Document & Analyzing..." : "✨ Advance Spell Check"}
                             </Button>
                         </div>
 

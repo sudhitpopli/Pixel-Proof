@@ -10,6 +10,6 @@ addOnUISdk.ready.then(async () => {
     const sandboxProxy = await runtime.apiProxy("documentSandbox" as any);
 
     root.render(
-        <App addOnUISdk={addOnUISdk.instance} sandboxProxy={sandboxProxy} />
+        <App addOnUISdk={addOnUISdk} sandboxProxy={sandboxProxy} />
     );
 });

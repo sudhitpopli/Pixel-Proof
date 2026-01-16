@@ -4,6 +4,14 @@ import dotenv from "dotenv";
 import multer from "multer";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import fs from "fs";
+import { spawn } from "child_process";
+import axios from "axios";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Fix for __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -39,6 +47,47 @@ const safetySettings = [
     { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
+
+// ==========================================
+// START PYTHON MODEL SERVICE
+// ==========================================
+const PYTHON_SCRIPT_PATH = path.join(__dirname, "../model_service/hatebert-final/app.py");
+let pythonProcess = null;
+
+const startPythonService = () => {
+    console.log("Starting Python Model Service...");
+    // Attempt to verify file exists
+    if (!fs.existsSync(PYTHON_SCRIPT_PATH)) {
+        console.error(`❌ Python script not found at: ${PYTHON_SCRIPT_PATH}`);
+        return;
+    }
+
+    pythonProcess = spawn("python", [PYTHON_SCRIPT_PATH], {
+        stdio: 'inherit',
+        env: { ...process.env, PORT: "5001" }
+    });
+
+    pythonProcess.on('error', (err) => {
+        console.error('❌ Failed to start Python process:', err);
+    });
+
+    pythonProcess.on('exit', (code, signal) => {
+        if (code !== 0 && code !== null) {
+            console.error(`python process exited with code ${code}`);
+        }
+    });
+};
+
+startPythonService();
+
+// Cleanup on exit
+process.on('SIGINT', () => {
+    if (pythonProcess) {
+        console.log("Stopping Python Service...");
+        pythonProcess.kill();
+    }
+    process.exit();
+});
 
 // ==========================================
 // ROUTE 1: BIAS DETECTOR
@@ -129,6 +178,34 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
 
     } catch (error) {
         console.error("OCR Error:", error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// ROUTE 3: HATE SPEECH DETECTION (LOCAL MODEL)
+// ==========================================
+app.post("/analyze-hate", async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text) return res.status(400).json({ error: "No text provided" });
+
+        // Forward to Python Flask Service
+        try {
+            const pythonResponse = await axios.post("http://127.0.0.1:5001/predict", { text });
+            res.json(pythonResponse.data);
+        } catch (pyError) {
+            console.error("Error communicating with Python service:", pyError.message);
+            if (pyError.code === 'ECONNREFUSED') {
+                return res.status(503).json({
+                    error: "Model service is unavailable. It might be loading or failed to start.",
+                    details: "Check server logs for Python process status."
+                });
+            }
+            res.status(500).json({ error: "Model service error", details: pyError.message });
+        }
+
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
