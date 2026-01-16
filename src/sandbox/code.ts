@@ -14,6 +14,9 @@ import {
     ImageUrlInfo
 } from "./imageUrlExtraction";
 import {
+    capturePageScreenshotWithMetadata
+} from "./screenshotService";
+import {
     crawlWebPage,
     crawlMultiplePages
 } from "./crawlerService";
@@ -423,7 +426,10 @@ addOnSandboxSdk.instance.runtime.exposeApi({
 
     // Image URL Extraction APIs
     getImageSourceUrl,
-    getAllImageSourceUrls
+    getAllImageSourceUrls,
+    
+    // Screenshot Service APIs
+    capturePageScreenshotWithMetadata
 });
 
 console.log("Sandbox API initialized - Text extraction, OCR, Web Crawler, and ML Detection APIs available");

@@ -272,7 +272,35 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         try {
             console.log("🚀 Starting detection on ACTUAL document content...");
             
-            // 1. Capture the actual Adobe Express Canvas (clean image, no UI)
+            // STEP 1: Extract URLs directly from document node metadata FIRST (most reliable)
+            console.log("📋 Step 1: Extracting image URLs from document node metadata...");
+            let nodeImageUrls: any[] = [];
+            let nodeMetadataDetails: any[] = [];
+            try {
+                const allImageUrls = await sandboxProxy.getAllImageSourceUrls();
+                console.log(`📦 Found ${allImageUrls.length} image node(s) in document`);
+                
+                // Log all metadata for debugging
+                allImageUrls.forEach((info, idx) => {
+                    console.log(`\n📸 Image Node ${idx + 1}:`);
+                    console.log(`   Node ID: ${info.nodeId}`);
+                    console.log(`   Type: ${info.type}`);
+                    console.log(`   Has Source URL: ${!!info.sourceUrl}`);
+                    console.log(`   Node Metadata Keys:`, Object.keys(info.metadata.nodeAddOnData));
+                    console.log(`   Media Metadata Keys:`, Object.keys(info.metadata.mediaAddOnData));
+                    console.log(`   All Node Metadata:`, info.metadata.nodeAddOnData);
+                    console.log(`   All Media Metadata:`, info.metadata.mediaAddOnData);
+                });
+                
+                nodeImageUrls = allImageUrls.filter(info => info.sourceUrl);
+                nodeMetadataDetails = allImageUrls; // Keep all for debugging
+                console.log(`✅ Found ${nodeImageUrls.length} image URL(s) in document node metadata:`, nodeImageUrls);
+            } catch (nodeError) {
+                console.warn("⚠️ Could not extract URLs from document nodes:", nodeError);
+                // Continue with screenshot detection
+            }
+            
+            // STEP 2: Capture the actual Adobe Express Canvas (clean image, no UI)
             if (!addOnUISdk.app.document.createRenditions) {
                 throw new Error("SDK Error: createRenditions API missing.");
             }
@@ -286,7 +314,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             if (!renditionResults.length) throw new Error("No content found on page.");
             const blob = renditionResults[0].blob;
 
-            // 2. Convert Blob to Base64
+            // Convert Blob to Base64
             const reader = new FileReader();
             reader.readAsDataURL(blob);
             
@@ -299,16 +327,16 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                     return;
                 }
 
-                // 3. Send to Backend
+                // STEP 3: Send to Backend for Gemini/SerpAPI analysis
                 try {
-                    console.log("📡 Sending high-res canvas to backend...");
+                    console.log("📡 Step 2: Sending canvas to backend for analysis...");
                     
                     const response = await fetch('http://localhost:3000/detect-images-in-screenshot', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             screenshot_base64: base64data,
-                            services: ['gemini', 'google_vision'] // Use Google Vision for URLs
+                            services: ['gemini', 'serpapi']
                         })
                     });
 
@@ -318,8 +346,40 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                     }
 
                     const result = await response.json();
-                    console.log("✅ Analysis Complete:", result);
-                    setImageDetectionResult(result);
+                    
+                    // STEP 4: Combine results - prioritize node URLs over SerpAPI
+                    const combinedImageUrls = [
+                        // URLs from document nodes (most reliable - from metadata)
+                        ...nodeImageUrls.map((nodeInfo, idx) => ({
+                            url: nodeInfo.sourceUrl!,
+                            source: "document_node" as const,
+                            title: `Image from Document Metadata ${idx + 1}`,
+                            nodeId: nodeInfo.nodeId,
+                            metadata: nodeInfo.metadata
+                        })),
+                        // URLs from SerpAPI (if no node URLs found)
+                        ...(result.results?.imageUrls || [])
+                    ];
+
+                    // Update result with combined URLs and node metadata
+                    const enhancedResult = {
+                        ...result,
+                        results: {
+                            ...result.results,
+                            imageUrls: combinedImageUrls
+                        },
+                        nodeImageUrls: nodeImageUrls,
+                        nodeMetadataDetails: nodeMetadataDetails,
+                        summary: {
+                            ...result.results?.summary,
+                            totalUrlsFound: combinedImageUrls.length,
+                            urlsFromNodes: nodeImageUrls.length,
+                            urlsFromSerpAPI: (result.results?.imageUrls || []).length
+                        }
+                    };
+                    
+                    console.log("✅ Analysis Complete:", enhancedResult);
+                    setImageDetectionResult(enhancedResult);
 
                 } catch (apiError: any) {
                     console.error("API call failed:", apiError);
@@ -458,7 +518,283 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         )}
                     </div>
 
-                    {/* SECTION 4: IMAGE DETECTION */}
+                    {/* SECTION 4: SCREENSHOT & CROP */}
+                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
+                        <h2>📸 Screenshot & Crop Images</h2>
+                        <p>Capture screenshot using rendition API and crop images based on metadata (position, width, height).</p>
+                        
+                        <div className="button-group" style={{ marginTop: "15px" }}>
+                            <Button 
+                                size="m" 
+                                variant="cta"
+                                onClick={async () => {
+                                    try {
+                                        console.log("📸 ========================================");
+                                        console.log("📸 Starting SCREENSHOT & CROP process...");
+                                        console.log("📸 ========================================");
+                                        
+                                        // Step 1: Get metadata from sandbox
+                                        console.log("📋 Step 1: Extracting image metadata from document...");
+                                        let metadataResult;
+                                        try {
+                                            metadataResult = await sandboxProxy.capturePageScreenshotWithMetadata();
+                                            console.log("✅ Metadata extracted:", metadataResult);
+                                        } catch (metaError: any) {
+                                            console.error("❌ Metadata extraction error:", metaError);
+                                            alert(`Failed to extract metadata: ${metaError.message || 'Unknown error'}\n\nCheck console for details.`);
+                                            return;
+                                        }
+                                        
+                                        if (!metadataResult || !metadataResult.success) {
+                                            const errorMsg = metadataResult?.error || 'Unknown error';
+                                            console.error("❌ Metadata extraction failed:", errorMsg);
+                                            alert(`Failed to extract metadata: ${errorMsg}`);
+                                            return;
+                                        }
+                                        
+                                        const imageCount = metadataResult.imageMetadata ? metadataResult.imageMetadata.length : 0;
+                                        console.log(`📋 Found ${imageCount} image(s) in document`);
+                                        
+                                        // Step 2: Capture screenshot using rendition API
+                                        console.log("📸 Step 2: Capturing screenshot using rendition API...");
+                                        if (!addOnUISdk || !addOnUISdk.app || !addOnUISdk.app.document) {
+                                            console.error("❌ SDK Error: addOnUISdk not available");
+                                            alert("SDK Error: Adobe Express SDK not available. Make sure you're running in Adobe Express.");
+                                            return;
+                                        }
+                                        
+                                        if (!addOnUISdk.app.document.createRenditions) {
+                                            console.error("❌ SDK Error: createRenditions API missing");
+                                            alert("SDK Error: createRenditions API missing. Check manifest.json permissions.");
+                                            return;
+                                        }
+                                        
+                                        console.log("📸 Calling createRenditions...");
+                                        let renditionResults;
+                                        try {
+                                            renditionResults = await addOnUISdk.app.document.createRenditions({ 
+                                                range: "currentPage", 
+                                                format: "image/png" 
+                                            });
+                                            console.log("✅ Rendition API called, results:", renditionResults);
+                                        } catch (rendError: any) {
+                                            console.error("❌ Rendition API error:", rendError);
+                                            alert(`Failed to capture screenshot: ${rendError.message || 'Unknown error'}\n\nCheck console for details.`);
+                                            return;
+                                        }
+                                        
+                                        if (!renditionResults || !renditionResults.length) {
+                                            console.error("❌ No rendition results returned");
+                                            alert("No content found on page. Make sure there's content visible on the page.");
+                                            return;
+                                        }
+                                        
+                                        console.log("✅ Screenshot captured, blob size:", renditionResults[0].blob?.size || 'unknown');
+                                        const blob = renditionResults[0].blob;
+                                        
+                                        if (!blob) {
+                                            console.error("❌ No blob in rendition result");
+                                            alert("Screenshot blob is empty. Please try again.");
+                                            return;
+                                        }
+                                        
+                                        // Download screenshot IMMEDIATELY - SIMPLE APPROACH
+                                        console.log("⬇️ Step 3: Downloading screenshot blob directly...");
+                                        const timestamp = Date.now();
+                                        const filename = `screenshot_${timestamp}.png`;
+                                        
+                                        try {
+                                            // Method 1: Create blob URL and download
+                                            const blobUrl = URL.createObjectURL(blob);
+                                            console.log("✅ Blob URL created:", blobUrl);
+                                            console.log("📦 Blob details:", {
+                                                type: blob.type,
+                                                size: blob.size,
+                                                filename: filename
+                                            });
+                                            
+                                            // Create download link
+                                            const link = document.createElement('a');
+                                            link.href = blobUrl;
+                                            link.download = filename;
+                                            link.style.position = 'fixed';
+                                            link.style.top = '-9999px';
+                                            link.style.left = '-9999px';
+                                            
+                                            document.body.appendChild(link);
+                                            console.log("✅ Link element added to DOM, clicking...");
+                                            
+                                            // Force click
+                                            link.click();
+                                            console.log("✅ Click triggered");
+                                            
+                                            // Cleanup after a delay
+                                            setTimeout(() => {
+                                                document.body.removeChild(link);
+                                                URL.revokeObjectURL(blobUrl);
+                                                console.log("✅ Cleanup complete - URL revoked, link removed");
+                                            }, 2000);
+                                            
+                                            // Also try window.open as fallback
+                                            console.log("🔄 Trying window.open as backup...");
+                                            const newWindow = window.open(blobUrl, '_blank');
+                                            if (newWindow) {
+                                                setTimeout(() => newWindow.close(), 1000);
+                                                console.log("✅ Window.open also triggered");
+                                            }
+                                            
+                                            alert(`✅ Screenshot downloading!\n\nFilename: ${filename}\nSize: ${(blob.size / 1024).toFixed(2)} KB\n\nCheck your browser downloads folder.`);
+                                            
+                                        } catch (downloadError: any) {
+                                            console.error("❌ Download error:", downloadError);
+                                            console.error("❌ Error stack:", downloadError.stack);
+                                            
+                                            // Fallback: Try direct window.open
+                                            try {
+                                                console.log("🔄 Fallback: Trying direct window.open...");
+                                                const fallbackUrl = URL.createObjectURL(blob);
+                                                window.open(fallbackUrl);
+                                                alert(`✅ Screenshot opened in new tab!\n\nRight-click the image and "Save As..." if download didn't start.`);
+                                            } catch (fallbackError: any) {
+                                                console.error("❌ Fallback also failed:", fallbackError);
+                                                alert(`❌ Download failed: ${downloadError.message}\n\nScreenshot captured successfully (${(blob.size / 1024).toFixed(2)} KB) but couldn't download. Check console for details.`);
+                                            }
+                                        }
+                                        
+                                        // Step 4: Convert Blob to Base64 for backend
+                                        console.log("📦 Step 4: Converting screenshot to base64 for backend...");
+                                        const reader = new FileReader();
+                                        reader.readAsDataURL(blob);
+                                        
+                                        reader.onloadend = async () => {
+                                            try {
+                                                const dataUrl = reader.result?.toString();
+                                                if (!dataUrl) {
+                                                    console.error("❌ FileReader result is empty");
+                                                    alert("Failed to process image data");
+                                                    return;
+                                                }
+                                                
+                                                const base64data = dataUrl.split(',')[1];
+                                                console.log("✅ Base64 conversion complete, length:", base64data.length);
+                                                
+                                                if (!base64data) {
+                                                    console.error("❌ Base64 data is empty after splitting");
+                                                    alert("Failed to extract base64 data from image");
+                                                    return;
+                                                }
+                                                
+                                                // Download metadata
+                                                console.log("⬇️ Downloading metadata...");
+                                                try {
+                                                    const metadataBlob = new Blob([JSON.stringify({
+                                                        screenshot_path: `server/uploads/screenshot_${timestamp}.png`,
+                                                        timestamp: timestamp,
+                                                        image_metadata: metadataResult.imageMetadata || []
+                                                    }, null, 2)], { type: 'application/json' });
+                                                    const metadataUrl = URL.createObjectURL(metadataBlob);
+                                                    const metadataLink = document.createElement('a');
+                                                    metadataLink.href = metadataUrl;
+                                                    metadataLink.download = `screenshot_${timestamp}_metadata.json`;
+                                                    metadataLink.style.display = 'none';
+                                                    document.body.appendChild(metadataLink);
+                                                    metadataLink.click();
+                                                    setTimeout(() => {
+                                                        document.body.removeChild(metadataLink);
+                                                        URL.revokeObjectURL(metadataUrl);
+                                                    }, 1000);
+                                                    console.log("✅ Metadata downloaded");
+                                                } catch (metaDownloadError: any) {
+                                                    console.error("❌ Metadata download error:", metaDownloadError);
+                                                }
+                                                
+                                                // Step 5: Send to backend to save files to uploads folder
+                                                console.log("📡 Step 5: Sending to backend to save files in uploads/ folder...");
+                                                try {
+                                                    const response = await fetch('http://localhost:3000/capture-and-crop-screenshot', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ 
+                                                            screenshot_base64: base64data,
+                                                            image_metadata: metadataResult.imageMetadata || []
+                                                        })
+                                                    });
+                                                    
+                                                    if (!response.ok) {
+                                                        const errorText = await response.text();
+                                                        console.error("❌ Backend returned error:", response.status, errorText);
+                                                        alert(`❌ Backend save failed (${response.status}): ${errorText.substring(0, 200)}\n\nMake sure backend server is running on port 3000.\n\nCheck console for details.`);
+                                                        return;
+                                                    }
+                                                    
+                                                    const result = await response.json();
+                                                    console.log("✅ Backend response:", result);
+                                                    
+                                                    if (result.success) {
+                                                        const croppedCount = result.crop_results ? result.crop_results.filter((r: any) => r.success).length : 0;
+                                                        const totalImages = result.image_metadata ? result.image_metadata.length : 0;
+                                                        
+                                                        let message = `✅ SUCCESS! Files saved to server/uploads/ folder:\n\n`;
+                                                        message += `📸 Screenshot PNG: ${result.screenshot_path}\n`;
+                                                        if (result.blob_text_path) {
+                                                            message += `📄 BLOB TEXT FILE: ${result.blob_text_path}\n`;
+                                                            message += `   (Contains base64 blob data: ${(result.blob_text_size / 1024).toFixed(2)} KB)\n`;
+                                                        }
+                                                        message += `📋 Metadata JSON: ${result.metadata_path}\n`;
+                                                        
+                                                        if (croppedCount > 0) {
+                                                            message += `\n✂️ Cropped ${croppedCount} of ${totalImages} image(s):\n`;
+                                                            result.crop_results.filter((r: any) => r.success).forEach((r: any, idx: number) => {
+                                                                message += `   - ${r.cropped_path}\n`;
+                                                            });
+                                                        } else if (totalImages > 0) {
+                                                            message += `\n⚠️ No images were cropped (check metadata dimensions)\n`;
+                                                        }
+                                                        
+                                                        message += `\n📁 ALL FILES IN: server/uploads/ folder`;
+                                                        
+                                                        alert(message);
+                                                        console.log("📁 All saved files:", {
+                                                            screenshot: result.screenshot_path,
+                                                            metadata: result.metadata_path,
+                                                            cropped_images: result.crop_results?.filter((r: any) => r.success).map((r: any) => r.cropped_path) || []
+                                                        });
+                                                    } else {
+                                                        console.error("❌ Backend reported failure:", result.error);
+                                                        alert(`❌ Backend save failed: ${result.error || 'Unknown error'}\n\nCheck console and server logs for details.`);
+                                                    }
+                                                } catch (apiError: any) {
+                                                    console.error("❌ Backend request failed:", apiError);
+                                                    alert(`❌ Backend error: ${apiError.message}\n\nMake sure the backend server is running:\n  npm start (in server folder)\n  or\n  node server/server.js\n\nServer should be on http://localhost:3000`);
+                                                }
+                                            } catch (processError: any) {
+                                                console.error("❌ Process error:", processError);
+                                                alert(`Error during processing: ${processError.message || 'Unknown error'}\n\nCheck console for details.`);
+                                            }
+                                        };
+                                        
+                                        reader.onerror = (error) => {
+                                            console.error("❌ FileReader error:", error);
+                                            alert("Failed to read screenshot data. Please try again.");
+                                        };
+                                        
+                                    } catch (err: any) {
+                                        console.error("❌ Screenshot error:", err);
+                                        console.error("❌ Error stack:", err.stack);
+                                        alert(`Error: ${err.message || 'Unknown error'}\n\nCheck console for details.`);
+                                    }
+                                }}
+                            >
+                                📸 Capture Screenshot & Crop Images (SAVES FILES)
+                            </Button>
+                            <p style={{ fontSize: "12px", color: "#666", marginTop: "10px" }}>
+                                ⚠️ Note: This button SAVES files on the server (server/uploads/). 
+                                Use the "Detect Images" button below if you only want to analyze without saving.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* SECTION 5: IMAGE DETECTION */}
                     <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
                         <h2>🖼️ Image Detection & URL Finder</h2>
                         <p>Capture screenshot and detect images with their URLs using Gemini Vision & SerpAPI.</p>
@@ -554,13 +890,96 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                     </div>
                                 )}
 
+                                {/* Display Node Metadata Details FIRST - most important */}
+                                {imageDetectionResult.nodeMetadataDetails && imageDetectionResult.nodeMetadataDetails.length > 0 && (
+                                    <div style={{ marginBottom: "25px", padding: "15px", backgroundColor: "#f0f7ff", borderRadius: "6px", border: "2px solid #1976d2" }}>
+                                        <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#1976d2" }}>
+                                            📋 Document Node Metadata (Source URLs from Copied/Pasted Images)
+                                        </h3>
+                                        {imageDetectionResult.nodeMetadataDetails.map((nodeInfo: any, idx: number) => (
+                                            <div key={idx} style={{ marginBottom: "15px", padding: "12px", backgroundColor: "#fff", borderRadius: "4px", border: nodeInfo.sourceUrl ? "2px solid #4caf50" : "1px solid #ddd" }}>
+                                                <div style={{ marginBottom: "8px" }}>
+                                                    <strong>Image Node {idx + 1}:</strong> <code style={{ fontSize: "12px", padding: "2px 5px", backgroundColor: "#f5f5f5" }}>{nodeInfo.nodeId}</code>
+                                                </div>
+                                                {nodeInfo.sourceUrl ? (
+                                                    <div style={{ padding: "10px", backgroundColor: "#e8f5e9", borderRadius: "4px", marginTop: "8px" }}>
+                                                        <strong style={{ color: "#2e7d32", fontSize: "16px" }}>✅ Source URL Found in Metadata!</strong>
+                                                        <a 
+                                                            href={nodeInfo.sourceUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            style={{ 
+                                                                display: "block",
+                                                                color: "#1976d2", 
+                                                                textDecoration: "underline",
+                                                                wordBreak: "break-all",
+                                                                marginTop: "8px",
+                                                                fontSize: "14px",
+                                                                fontWeight: "bold"
+                                                            }}
+                                                        >
+                                                            {nodeInfo.sourceUrl}
+                                                        </a>
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ padding: "10px", backgroundColor: "#fff3cd", borderRadius: "4px", marginTop: "8px" }}>
+                                                        <strong style={{ color: "#856404" }}>⚠️ No URL found in metadata</strong>
+                                                        <div style={{ fontSize: "12px", marginTop: "8px", color: "#666" }}>
+                                                            <div><strong>Node Metadata Keys:</strong> {Object.keys(nodeInfo.metadata.nodeAddOnData).join(", ") || "none"}</div>
+                                                            <div style={{ marginTop: "5px" }}><strong>Media Metadata Keys:</strong> {Object.keys(nodeInfo.metadata.mediaAddOnData).join(", ") || "none"}</div>
+                                                        </div>
+                                                        {/* ALWAYS show all metadata - don't hide it */}
+                                                        <details style={{ marginTop: "8px" }} open={true}>
+                                                            <summary style={{ cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#1976d2" }}>
+                                                                🔍 View ALL Node Metadata ({Object.keys(nodeInfo.metadata.nodeAddOnData || {}).length} keys)
+                                                            </summary>
+                                                            <pre style={{ fontSize: "11px", overflow: "auto", maxHeight: "300px", marginTop: "5px", padding: "8px", backgroundColor: "#f9f9f9", borderRadius: "4px", border: "1px solid #ddd" }}>
+                                                                {JSON.stringify(nodeInfo.metadata.nodeAddOnData || {}, null, 2)}
+                                                            </pre>
+                                                        </details>
+                                                        <details style={{ marginTop: "8px" }} open={true}>
+                                                            <summary style={{ cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#1976d2" }}>
+                                                                🔍 View ALL Media Metadata ({Object.keys(nodeInfo.metadata.mediaAddOnData || {}).length} keys)
+                                                            </summary>
+                                                            <pre style={{ fontSize: "11px", overflow: "auto", maxHeight: "300px", marginTop: "5px", padding: "8px", backgroundColor: "#f9f9f9", borderRadius: "4px", border: "1px solid #ddd" }}>
+                                                                {JSON.stringify(nodeInfo.metadata.mediaAddOnData || {}, null, 2)}
+                                                            </pre>
+                                                        </details>
+                                                        {nodeInfo.metadata.nodeProperties && Object.keys(nodeInfo.metadata.nodeProperties).length > 0 && (
+                                                            <details style={{ marginTop: "8px" }} open={true}>
+                                                                <summary style={{ cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#1976d2" }}>
+                                                                    🔍 View ALL Node Properties ({Object.keys(nodeInfo.metadata.nodeProperties).length} properties) - EVERYTHING ABOUT THIS NODE
+                                                                </summary>
+                                                                <pre style={{ fontSize: "11px", overflow: "auto", maxHeight: "400px", marginTop: "5px", padding: "8px", backgroundColor: "#f9f9f9", borderRadius: "4px", border: "1px solid #ddd", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                                                    {JSON.stringify(nodeInfo.metadata.nodeProperties, null, 2)}
+                                                                </pre>
+                                                            </details>
+                                                        )}
+                                                        {nodeInfo.metadata.allNodeData && (
+                                                            <details style={{ marginTop: "8px" }} open={true}>
+                                                                <summary style={{ cursor: "pointer", fontSize: "12px", fontWeight: "bold", color: "#d32f2f" }}>
+                                                                    🔬 COMPLETE NODE DUMP - Full Structure Analysis
+                                                                </summary>
+                                                                <pre style={{ fontSize: "10px", overflow: "auto", maxHeight: "500px", marginTop: "5px", padding: "8px", backgroundColor: "#fff", borderRadius: "4px", border: "2px solid #d32f2f", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                                                                    {JSON.stringify(nodeInfo.metadata.allNodeData, null, 2)}
+                                                                </pre>
+                                                            </details>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 {/* Image URLs (from Document Nodes or SerpAPI) */}
-                                {imageDetectionResult.imageUrls && imageDetectionResult.imageUrls.length > 0 && (
+                                {(imageDetectionResult.results?.imageUrls || imageDetectionResult.imageUrls) && 
+                                 (imageDetectionResult.results?.imageUrls?.length > 0 || imageDetectionResult.imageUrls?.length > 0) && (
                                     <div>
                                         <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
                                             🔗 Image URLs Found
                                         </h3>
-                                        {imageDetectionResult.imageUrls.map((urlResult, idx) => {
+                                        {(imageDetectionResult.results?.imageUrls || imageDetectionResult.imageUrls || []).map((urlResult: any, idx: number) => {
                                             const isNodeUrl = urlResult.source === 'document_node';
                                             return (
                                                 <div 

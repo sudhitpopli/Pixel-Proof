@@ -43,6 +43,17 @@ export interface ImageDetectionResult {
     geminiAnalysis?: any;
     serpApiResults?: any;
     nodeImageUrls?: any[];
+    nodeMetadataDetails?: any[];
+    results?: {
+        detectedImages?: DetectedImage[];
+        imageUrls?: ImageUrlResult[];
+        summary?: {
+            totalImagesDetected: number;
+            totalUrlsFound: number;
+            urlsFromNodes?: number;
+            urlsFromSerpAPI?: number;
+        };
+    };
     summary?: {
         totalImagesDetected: number;
         totalUrlsFound: number;
