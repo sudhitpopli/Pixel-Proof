@@ -1,0 +1,23 @@
+{
+    "testId": "5bb9f5b1-df75-415d-ab65-33898455aaa0",
+    "name": "ComplianceGuard Pro",
+    "version": "1.0.0",
+    "manifestVersion": 2,
+    "description": "Enterprise risk management for copyright, cultural sensitivity, and interpretation compliance",
+    "requirements": {
+        "apps": [
+            {
+                "name": "Express",
+                "apiVersion": 1
+            }
+        ]
+    },
+    "entryPoints": [
+        {
+            "type": "panel",
+            "id": "panel1",
+            "main": "index.html",
+            "documentSandbox": "code.js"
+        }
+    ]
+}
