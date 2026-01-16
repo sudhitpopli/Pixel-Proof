@@ -9,6 +9,11 @@ import {
     ExtractionSummary
 } from "./textExtraction";
 import {
+    getImageSourceUrl,
+    getAllImageSourceUrls,
+    ImageUrlInfo
+} from "./imageUrlExtraction";
+import {
     crawlWebPage,
     crawlMultiplePages
 } from "./crawlerService";
@@ -414,7 +419,11 @@ addOnSandboxSdk.instance.runtime.exposeApi({
     getMLConfig,
     isMLServiceReady,
     testMLService,
-    clearMLCache
+    clearMLCache,
+
+    // Image URL Extraction APIs
+    getImageSourceUrl,
+    getAllImageSourceUrls
 });
 
 console.log("Sandbox API initialized - Text extraction, OCR, Web Crawler, and ML Detection APIs available");

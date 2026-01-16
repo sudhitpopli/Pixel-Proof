@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Theme } from "@swc-react/theme";
 import { Button } from "@swc-react/button";
 import "./App.css";
+import { detectImagesInScreenshot, ImageDetectionResult } from "../utils/imageDetection";
 
 interface TextExtractionResult {
     success: boolean;
@@ -54,6 +55,11 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     // Page-level OCR state
     const [pageOcrText, setPageOcrText] = useState<string | null>(null);
     const [isPageOcrProcessing, setIsPageOcrProcessing] = useState(false);
+
+    // Image Detection state
+    const [imageDetectionResult, setImageDetectionResult] = useState<ImageDetectionResult | null>(null);
+    const [isDetectingImages, setIsDetectingImages] = useState(false);
+    const [imageDetectionError, setImageDetectionError] = useState<string | null>(null);
 
     // =========================================================================
     // HELPER: Format Python Backend Response for UI
@@ -252,6 +258,83 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         finally { setIsCrawling(false); }
     };
 
+    // =========================================================================
+    // 4. DETECT IMAGES IN SCREENSHOT AND GET URLs
+    // =========================================================================
+    // =========================================================================
+    // 4. DETECT IMAGES (Fixed: Uses SDK Rendition + Google Vision)
+    // =========================================================================
+    const handleDetectImagesInScreenshot = async () => {
+        setIsDetectingImages(true);
+        setImageDetectionError(null);
+        setImageDetectionResult(null);
+
+        try {
+            console.log("🚀 Starting detection on ACTUAL document content...");
+            
+            // 1. Capture the actual Adobe Express Canvas (clean image, no UI)
+            if (!addOnUISdk.app.document.createRenditions) {
+                throw new Error("SDK Error: createRenditions API missing.");
+            }
+
+            // Export the current page as a PNG blob
+            const renditionResults = await addOnUISdk.app.document.createRenditions({ 
+                range: "currentPage", 
+                format: "image/png" 
+            });
+            
+            if (!renditionResults.length) throw new Error("No content found on page.");
+            const blob = renditionResults[0].blob;
+
+            // 2. Convert Blob to Base64
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            
+            reader.onloadend = async () => {
+                const base64data = reader.result?.toString().split(',')[1]; // Remove "data:image/png;base64," header
+
+                if (!base64data) {
+                    setImageDetectionError("Failed to process image data");
+                    setIsDetectingImages(false);
+                    return;
+                }
+
+                // 3. Send to Backend
+                try {
+                    console.log("📡 Sending high-res canvas to backend...");
+                    
+                    const response = await fetch('http://localhost:3000/detect-images-in-screenshot', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            screenshot_base64: base64data,
+                            services: ['gemini', 'google_vision'] // Use Google Vision for URLs
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errText = await response.text();
+                        throw new Error(`Backend Error: ${errText}`);
+                    }
+
+                    const result = await response.json();
+                    console.log("✅ Analysis Complete:", result);
+                    setImageDetectionResult(result);
+
+                } catch (apiError: any) {
+                    console.error("API call failed:", apiError);
+                    setImageDetectionError(apiError.message);
+                } finally {
+                    setIsDetectingImages(false);
+                }
+            };
+
+        } catch (err: any) {
+            console.error("❌ Process Error:", err);
+            setImageDetectionError(err.message || String(err));
+            setIsDetectingImages(false);
+        }
+    };
     return (
         <Theme system="express" scale="medium" color="light">
             <div className="compliance-container">
@@ -371,6 +454,259 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* SECTION 4: IMAGE DETECTION */}
+                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
+                        <h2>🖼️ Image Detection & URL Finder</h2>
+                        <p>Capture screenshot and detect images with their URLs using Gemini Vision & SerpAPI.</p>
+                        
+                        <div className="button-group" style={{ marginTop: "15px" }}>
+                            <Button 
+                                size="m" 
+                                onClick={handleDetectImagesInScreenshot} 
+                                disabled={isDetectingImages} 
+                                variant="cta"
+                            >
+                                {isDetectingImages ? "🔍 Detecting Images..." : "📸 Detect Images in Screenshot"}
+                            </Button>
+                        </div>
+
+                        {imageDetectionError && (
+                            <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
+                                <strong>Error:</strong> {imageDetectionError}
+                            </div>
+                        )}
+
+                        {imageDetectionResult && imageDetectionResult.success && (
+                            <div style={{ marginTop: "25px" }}>
+                                {/* Summary */}
+                                <div style={{ 
+                                    padding: "15px", 
+                                    backgroundColor: "#e3f2fd", 
+                                    borderRadius: "6px",
+                                    marginBottom: "20px"
+                                }}>
+                                    <strong style={{ fontSize: "16px", color: "#1976d2" }}>
+                                        📊 Detection Summary
+                                    </strong>
+                                    <div style={{ marginTop: "10px", display: "flex", gap: "20px", fontSize: "14px" }}>
+                                        <div>
+                                            <strong>Images Detected:</strong> {imageDetectionResult.summary?.totalImagesDetected || 0}
+                                        </div>
+                                        <div>
+                                            <strong>URLs Found:</strong> {imageDetectionResult.summary?.totalUrlsFound || 0}
+                                        </div>
+                                        {imageDetectionResult.summary?.urlsFromNodes !== undefined && (
+                                            <>
+                                                <div>
+                                                    <strong>From Document Nodes:</strong> {imageDetectionResult.summary?.urlsFromNodes || 0}
+                                                </div>
+                                                <div>
+                                                    <strong>From SerpAPI:</strong> {imageDetectionResult.summary?.urlsFromSerpAPI || 0}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Detected Images (from Gemini) */}
+                                {imageDetectionResult.detectedImages && imageDetectionResult.detectedImages.length > 0 && (
+                                    <div style={{ marginBottom: "25px" }}>
+                                        <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
+                                            🔍 Detected Images (Gemini Analysis)
+                                        </h3>
+                                        {imageDetectionResult.detectedImages.map((img, idx) => (
+                                            <div 
+                                                key={idx} 
+                                                style={{ 
+                                                    marginBottom: "15px", 
+                                                    padding: "15px", 
+                                                    backgroundColor: "#f9f9f9", 
+                                                    border: "1px solid #ddd",
+                                                    borderRadius: "4px"
+                                                }}
+                                            >
+                                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                                                    <strong style={{ color: "#1976d2" }}>Image {idx + 1}</strong>
+                                                    <span style={{ fontSize: "12px", color: "#666" }}>
+                                                        Confidence: {(img.confidence * 100).toFixed(0)}%
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: "14px", marginBottom: "5px" }}>
+                                                    <strong>Description:</strong> {img.description}
+                                                </div>
+                                                <div style={{ fontSize: "14px", marginBottom: "5px" }}>
+                                                    <strong>Position:</strong> {img.position}
+                                                </div>
+                                                <div style={{ fontSize: "14px", marginBottom: "5px" }}>
+                                                    <strong>Type:</strong> {img.type}
+                                                </div>
+                                                {img.branding && (
+                                                    <div style={{ fontSize: "14px" }}>
+                                                        <strong>Branding:</strong> {img.branding}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Image URLs (from Document Nodes or SerpAPI) */}
+                                {imageDetectionResult.imageUrls && imageDetectionResult.imageUrls.length > 0 && (
+                                    <div>
+                                        <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
+                                            🔗 Image URLs Found
+                                        </h3>
+                                        {imageDetectionResult.imageUrls.map((urlResult, idx) => {
+                                            const isNodeUrl = urlResult.source === 'document_node';
+                                            return (
+                                                <div 
+                                                    key={idx} 
+                                                    style={{ 
+                                                        marginBottom: "15px", 
+                                                        padding: "15px", 
+                                                        backgroundColor: isNodeUrl ? "#e8f5e9" : "#fff",
+                                                        border: `1px solid ${isNodeUrl ? "#4caf50" : "#4caf50"}`,
+                                                        borderRadius: "4px"
+                                                    }}
+                                                >
+                                                    <div style={{ marginBottom: "8px" }}>
+                                                        <strong style={{ 
+                                                            color: isNodeUrl ? "#2e7d32" : "#2e7d32", 
+                                                            fontSize: "14px" 
+                                                        }}>
+                                                            {isNodeUrl ? "✅" : "🔍"} URL {idx + 1} ({urlResult.source})
+                                                            {isNodeUrl && " - From Document Node"}
+                                                        </strong>
+                                                    </div>
+                                                    <div style={{ marginBottom: "5px" }}>
+                                                        <a 
+                                                            href={urlResult.url} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            style={{ 
+                                                                color: "#1976d2", 
+                                                                textDecoration: "underline",
+                                                                wordBreak: "break-all"
+                                                            }}
+                                                        >
+                                                            {urlResult.url}
+                                                        </a>
+                                                    </div>
+                                                    {urlResult.title && (
+                                                        <div style={{ fontSize: "13px", color: "#666", marginTop: "5px" }}>
+                                                            <strong>Title:</strong> {urlResult.title}
+                                                        </div>
+                                                    )}
+                                                    {urlResult.nodeId && (
+                                                        <div style={{ fontSize: "12px", color: "#666", marginTop: "5px" }}>
+                                                            <strong>Node ID:</strong> {urlResult.nodeId}
+                                                        </div>
+                                                    )}
+                                                    {urlResult.thumbnail && (
+                                                        <div style={{ marginTop: "10px" }}>
+                                                            <img 
+                                                                src={urlResult.thumbnail} 
+                                                                alt={urlResult.title || `Thumbnail ${idx + 1}`}
+                                                                style={{ 
+                                                                    maxWidth: "200px", 
+                                                                    maxHeight: "150px",
+                                                                    border: "1px solid #ddd",
+                                                                    borderRadius: "4px"
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* Debug Info - Show Gemini and SerpAPI responses for troubleshooting */}
+                                {(imageDetectionResult.geminiAnalysis || imageDetectionResult.serpApiResults) && (
+                                    <div style={{ marginTop: "25px" }}>
+                                        <h3 style={{ fontSize: "18px", marginBottom: "15px", color: "#333" }}>
+                                            🔧 Debug Information
+                                        </h3>
+                                        
+                                        {imageDetectionResult.geminiAnalysis && (
+                                            <div style={{ 
+                                                marginBottom: "15px", 
+                                                padding: "15px", 
+                                                backgroundColor: "#f0f0f0", 
+                                                borderRadius: "4px",
+                                                fontSize: "12px"
+                                            }}>
+                                                <strong>Gemini Analysis:</strong>
+                                                <pre style={{ 
+                                                    marginTop: "10px", 
+                                                    padding: "10px", 
+                                                    backgroundColor: "#fff",
+                                                    borderRadius: "4px",
+                                                    overflow: "auto",
+                                                    maxHeight: "300px",
+                                                    whiteSpace: "pre-wrap",
+                                                    wordBreak: "break-word"
+                                                }}>
+                                                    {JSON.stringify(imageDetectionResult.geminiAnalysis, null, 2)}
+                                                </pre>
+                                            </div>
+                                        )}
+                                        
+                                        {imageDetectionResult.serpApiResults && (
+                                            <div style={{ 
+                                                marginBottom: "15px", 
+                                                padding: "15px", 
+                                                backgroundColor: "#f0f0f0", 
+                                                borderRadius: "4px",
+                                                fontSize: "12px"
+                                            }}>
+                                                <strong>SerpAPI Results:</strong>
+                                                <pre style={{ 
+                                                    marginTop: "10px", 
+                                                    padding: "10px", 
+                                                    backgroundColor: "#fff",
+                                                    borderRadius: "4px",
+                                                    overflow: "auto",
+                                                    maxHeight: "300px",
+                                                    whiteSpace: "pre-wrap",
+                                                    wordBreak: "break-word"
+                                                }}>
+                                                    {JSON.stringify(imageDetectionResult.serpApiResults, null, 2)}
+                                                </pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* No results message */}
+                                {(!imageDetectionResult.detectedImages || imageDetectionResult.detectedImages.length === 0) &&
+                                 (!imageDetectionResult.imageUrls || imageDetectionResult.imageUrls.length === 0) && (
+                                    <div style={{ 
+                                        padding: "20px", 
+                                        backgroundColor: "#fff3cd", 
+                                        borderRadius: "4px",
+                                        marginTop: "20px"
+                                    }}>
+                                        <strong>ℹ️ No images detected or URLs found.</strong>
+                                        <div style={{ marginTop: "10px", fontSize: "13px" }}>
+                                            <p>Possible reasons:</p>
+                                            <ul style={{ marginLeft: "20px", marginTop: "5px" }}>
+                                                <li>The screenshot might not have captured the image properly</li>
+                                                <li>Gemini might not recognize the image in the screenshot format</li>
+                                                <li>SerpAPI might not find matching URLs for the image</li>
+                                                <li>Check the Debug Information section below for more details</li>
+                                            </ul>
+                                            <p style={{ marginTop: "10px" }}>
+                                                💡 <strong>Tip:</strong> Make sure the image is fully visible in the screenshot before capturing.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
