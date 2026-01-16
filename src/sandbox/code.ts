@@ -1,5 +1,5 @@
 import addOnSandboxSdk from "add-on-sdk-document-sandbox";
-import { editor } from "express-document-sdk";
+import { editor, constants } from "express-document-sdk";
 
 /**
  * Extract all text from the Adobe Express document
@@ -69,6 +69,98 @@ async function extractText() {
 }
 
 /**
+ * Extract image data from all images in the document
+ * Returns image blobs that can be used for OCR in the UI
+ */
+async function extractImageData() {
+    try {
+        console.log("=== Starting Image Data Extraction ===");
+
+        const imageDataArray: Array<{ id: string; blob: Blob }> = [];
+        const doc = editor.documentRoot;
+
+        console.log(`Document has ${doc.pages.length} page(s)`);
+
+        // Iterate through all pages
+        for (const page of doc.pages) {
+            console.log(`Processing page: ${page.id}`);
+
+            // Iterate through all artboards on the page
+            for (const artboard of page.artboards) {
+                console.log(`  Processing artboard: ${artboard.id}`);
+
+                // Get all children in the artboard
+                const children = Array.from(artboard.allChildren);
+                console.log(`    Found ${children.length} node(s)`);
+
+                // Extract image data from MediaContainerNode (which contains ImageRectangleNode)
+                for (const node of children) {
+                    if (node.type === constants.SceneNodeType.mediaContainer) {
+                        try {
+                            const mediaContainer = node as any;
+                            
+                            // Get the mediaRectangle which is an ImageRectangleNode
+                            if (mediaContainer.mediaRectangle) {
+                                const imageRectangle = mediaContainer.mediaRectangle;
+                                
+                                // Check if it's an ImageRectangleNode (not UnknownMediaRectangleNode)
+                                if (imageRectangle.type === constants.SceneNodeType.imageRectangle) {
+                                    console.log(`      Extracting image data: ${imageRectangle.id}`);
+                                    
+                                    // Fetch the bitmap image (experimental API)
+                                    const bitmapImage = await imageRectangle.fetchBitmapImage();
+                                    
+                                    // Get the image data as a Blob
+                                    const imageBlob = await bitmapImage.data();
+                                    
+                                    imageDataArray.push({
+                                        id: imageRectangle.id,
+                                        blob: imageBlob
+                                    });
+                                    
+                                    console.log(`      Image data extracted successfully`);
+                                }
+                            }
+                        } catch (error) {
+                            console.error(`      Error extracting image data from node:`, error);
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log("=== Image Data Extraction Complete ===");
+        console.log(`Total images found: ${imageDataArray.length}`);
+
+        // Convert Blobs to ArrayBuffers for transfer (Blobs can't be serialized directly)
+        const imageDataForTransfer = await Promise.all(
+            imageDataArray.map(async ({ id, blob }) => ({
+                id,
+                data: await blob.arrayBuffer(),
+                type: blob.type
+            }))
+        );
+
+        return {
+            success: true,
+            images: imageDataForTransfer,
+            count: imageDataForTransfer.length
+        };
+
+    } catch (error) {
+        console.error("=== Image Data Extraction Failed ===");
+        console.error("Error:", error);
+
+        return {
+            success: false,
+            images: [],
+            count: 0,
+            error: error instanceof Error ? error.message : String(error)
+        };
+    }
+}
+
+/**
  * Get document metadata
  */
 async function getDocumentInfo() {
@@ -89,7 +181,8 @@ async function getDocumentInfo() {
 // Expose API to UI
 addOnSandboxSdk.instance.runtime.exposeApi({
     extractText,
+    extractImageData,
     getDocumentInfo
 });
 
-console.log("Sandbox API initialized - extractText and getDocumentInfo available");
+console.log("Sandbox API initialized - extractText, extractImageData, and getDocumentInfo available");
