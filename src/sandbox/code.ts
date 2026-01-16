@@ -21,366 +21,147 @@ import {
     isMLServiceReady,
     testMLService,
     clearMLCache,
-    detectImplicitClaims, // Import new function
+    detectImplicitClaims,
     type MLConfig,
     type HateSpeechResult,
     type BatchHateSpeechResult,
     type MLAnalysisResult,
-    type ClaimAnalysisResult // Import type
+    type ClaimAnalysisResult
 } from "./mlService";
 
-/**
- * Extract all text from the Adobe Express document (Text nodes only)
- * This is the original function, maintained for backward compatibility
- */
+// =========================================================================
+// EXISTING FUNCTIONS
+// =========================================================================
+
 async function extractText() {
     try {
         console.log("=== Starting Text Extraction (Text Nodes Only) ===");
-
         const allText: string[] = [];
         const doc = editor.documentRoot;
-
-        console.log(`Document has ${doc.pages.length} page(s)`);
-
-        // Iterate through all pages
         for (const page of doc.pages) {
-            console.log(`Processing page: ${page.id}`);
-
-            // Iterate through all artboards on the page
             for (const artboard of page.artboards) {
-                console.log(`  Processing artboard: ${artboard.id}`);
-
-                // Get all children in the artboard
                 const children = Array.from(artboard.allChildren);
-                console.log(`    Found ${children.length} node(s)`);
-
-                // Extract text from Text nodes
                 for (const node of children) {
                     if (node.type === "Text") {
                         try {
-                            // Access text content through fullContent.text property
-                            const textNode = node as any; // Type assertion for text access
-
+                            const textNode = node as any;
                             if (textNode.fullContent && textNode.fullContent.text) {
-                                const textContent = textNode.fullContent.text;
-                                console.log(`      Found text: "${textContent}"`);
-                                allText.push(textContent);
+                                allText.push(textNode.fullContent.text);
                             }
                         } catch (error) {
-                            console.error(`      Error extracting text from node:`, error);
+                            console.error(`Error extracting text:`, error);
                         }
                     }
                 }
             }
         }
-
-        console.log("=== Extraction Complete ===");
-        console.log(`Total text elements found: ${allText.length}`);
-
-        return {
-            success: true,
-            textElements: allText,
-            count: allText.length
-        };
-
+        return { success: true, textElements: allText, count: allText.length };
     } catch (error) {
-        console.error("=== Extraction Failed ===");
-        console.error("Error:", error);
-
-        return {
-            success: false,
-            textElements: [],
-            count: 0,
-            error: error instanceof Error ? error.message : String(error)
-        };
+        return { success: false, textElements: [], count: 0, error: String(error) };
     }
 }
 
-/**
- * Extract text from both text nodes and images using OCR
- * Returns comprehensive results with raw text
- */
 async function extractTextWithOCR(): Promise<ExtractionSummary> {
     try {
-        console.log("=== Starting OCR-Enabled Text Extraction ===");
-
-        // Initialize OCR worker
         await initializeOCR();
-
-        // Extract all text (text nodes + OCR)
         const result = await extractAllText(true);
-
-        // Cleanup OCR worker
         await terminateOCR();
-
         return result;
     } catch (error) {
-        console.error("=== OCR Extraction Failed ===");
-        console.error("Error:", error);
-
-        // Try to cleanup worker even on error
-        try {
-            await terminateOCR();
-        } catch (cleanupError) {
-            console.error("Failed to cleanup OCR worker:", cleanupError);
-        }
-
-        return {
-            success: false,
-            totalElements: 0,
-            textNodes: 0,
-            ocrResults: 0,
-            results: [],
-            rawText: '',
-            error: error instanceof Error ? error.message : String(error)
-        };
+        try { await terminateOCR(); } catch (e) {}
+        return { success: false, totalElements: 0, textNodes: 0, ocrResults: 0, results: [], rawText: '', error: String(error) };
     }
 }
 
-/**
- * Extract text from images only (OCR only)
- */
 async function extractTextFromImagesOnly() {
     try {
-        console.log("=== Starting OCR-Only Text Extraction ===");
-
         await initializeOCR();
         const ocrResults = await extractTextFromImages();
         await terminateOCR();
-
         const rawText = ocrResults.map(r => r.text).join('\n');
-
-        return {
-            success: true,
-            results: ocrResults,
-            count: ocrResults.length,
-            rawText: rawText
-        };
+        return { success: true, results: ocrResults, count: ocrResults.length, rawText: rawText };
     } catch (error) {
-        console.error("=== OCR-Only Extraction Failed ===");
-        console.error("Error:", error);
-
-        try {
-            await terminateOCR();
-        } catch (cleanupError) {
-            console.error("Failed to cleanup OCR worker:", cleanupError);
-        }
-
-        return {
-            success: false,
-            results: [],
-            count: 0,
-            rawText: '',
-            error: error instanceof Error ? error.message : String(error)
-        };
+        try { await terminateOCR(); } catch (e) {}
+        return { success: false, results: [], count: 0, rawText: '', error: String(error) };
     }
 }
 
-/**
- * Get document metadata
- */
 async function getDocumentInfo() {
     try {
         const doc = editor.documentRoot;
         const images = await getDocumentImages();
-
-        return {
-            pageCount: doc.pages.length,
-            documentId: doc.id || "unknown",
-            imageCount: images.length,
-            images: images
-        };
+        return { pageCount: doc.pages.length, documentId: doc.id || "unknown", imageCount: images.length, images: images };
     } catch (error) {
-        return {
-            pageCount: 0,
-            documentId: "error",
-            imageCount: 0,
-            images: []
-        };
+        return { pageCount: 0, documentId: "error", imageCount: 0, images: [] };
     }
 }
 
-/**
- * Configure ML service with API key and settings
- * @param config - ML service configuration
- */
 function configureMLService(config: Partial<MLConfig>): void {
     initializeMLService(config);
-    console.log('ML Service configured');
 }
 
-/**
- * Analyze text for hate speech
- * @param text - Text to analyze
- * @returns Hate speech detection result
- */
 async function analyzeTextForHateSpeech(text: string): Promise<HateSpeechResult> {
-    try {
-        console.log('=== Analyzing text for hate speech ===');
-        const result = await detectHateSpeech(text);
-        console.log(`Result: ${result.isHateSpeech ? 'HATE SPEECH' : 'CLEAN'} (${result.confidence.toFixed(1)}% confidence)`);
-        return result;
-    } catch (error) {
-        console.error('Hate speech analysis failed:', error);
-        throw error;
-    }
+    return await detectHateSpeech(text);
 }
 
-/**
- * Analyze extracted document text for hate speech
- * Combines text extraction with ML analysis
- */
 async function analyzeDocumentForHateSpeech(): Promise<{ success: boolean; results: MLAnalysisResult[]; summary?: any; error?: string }> {
     try {
-        console.log('=== Analyzing document for hate speech ===');
-
-        // First, extract all text from the document
-        const extractionResult = await extractAllText(false); // Use text nodes only for speed
-
+        const extractionResult = await extractAllText(false);
         if (!extractionResult.success || extractionResult.results.length === 0) {
-            return {
-                success: false,
-                results: [],
-                error: 'No text found in document to analyze'
-            };
+            return { success: false, results: [], error: 'No text found in document' };
         }
-
-        console.log(`Extracted ${extractionResult.results.length} text elements`);
-
-        // Prepare text segments for analysis
-        const textSegments = extractionResult.results.map(r => ({
-            text: r.text,
-            source: r.source,
-            id: r.nodeId
-        }));
-
-        // Analyze all text segments
+        const textSegments = extractionResult.results.map(r => ({ text: r.text, source: r.source, id: r.nodeId }));
         const analysisResults = await analyzeTextSegments(textSegments);
-
-        // Calculate summary statistics
         const hateSpeechCount = analysisResults.filter(r => r.result.isHateSpeech).length;
         const totalConfidence = analysisResults.reduce((sum, r) => sum + r.result.confidence, 0);
-
-        const summary = {
-            totalAnalyzed: analysisResults.length,
-            hateSpeechCount,
-            cleanCount: analysisResults.length - hateSpeechCount,
-            averageConfidence: analysisResults.length > 0 ? totalConfidence / analysisResults.length : 0
-        };
-
-        console.log('=== Analysis Complete ===');
-        console.log(`Total: ${summary.totalAnalyzed}, Hate Speech: ${summary.hateSpeechCount}, Clean: ${summary.cleanCount}`);
-
+        
         return {
             success: true,
             results: analysisResults,
-            summary
+            summary: {
+                totalAnalyzed: analysisResults.length,
+                hateSpeechCount,
+                cleanCount: analysisResults.length - hateSpeechCount,
+                averageConfidence: analysisResults.length > 0 ? totalConfidence / analysisResults.length : 0
+            }
         };
     } catch (error) {
-        console.error('Document analysis failed:', error);
-        return {
-            success: false,
-            results: [],
-            error: error instanceof Error ? error.message : String(error)
-        };
+        return { success: false, results: [], error: String(error) };
     }
 }
 
-/**
- * Analyze crawled web page content for hate speech
- * @param crawlResult - Result from crawlWebPage
- */
 async function analyzeCrawledContentForHateSpeech(crawlResult: any): Promise<{ success: boolean; results: MLAnalysisResult[]; summary?: any; error?: string }> {
     try {
-        console.log('=== Analyzing crawled content for hate speech ===');
-
-        if (!crawlResult || !crawlResult.text) {
-            return {
-                success: false,
-                results: [],
-                error: 'Invalid crawl result provided'
-            };
-        }
-
-        // Prepare text segments from crawled content
+        if (!crawlResult || !crawlResult.text) return { success: false, results: [], error: 'Invalid crawl result' };
+        
         const textSegments: Array<{ text: string; source?: string }> = [];
+        if (crawlResult.text.headings) crawlResult.text.headings.forEach((h: string) => h.trim() && textSegments.push({ text: h, source: 'heading' }));
+        if (crawlResult.text.paragraphs) crawlResult.text.paragraphs.forEach((p: string) => p.trim() && textSegments.push({ text: p, source: 'paragraph' }));
+        if (crawlResult.text.lists) crawlResult.text.lists.forEach((l: string) => l.trim() && textSegments.push({ text: l, source: 'list' }));
 
-        // Add headings
-        if (crawlResult.text.headings && crawlResult.text.headings.length > 0) {
-            crawlResult.text.headings.forEach((heading: string) => {
-                if (heading.trim()) {
-                    textSegments.push({ text: heading, source: 'heading' });
-                }
-            });
-        }
+        if (textSegments.length === 0) return { success: false, results: [], error: 'No text content found' };
 
-        // Add paragraphs
-        if (crawlResult.text.paragraphs && crawlResult.text.paragraphs.length > 0) {
-            crawlResult.text.paragraphs.forEach((paragraph: string) => {
-                if (paragraph.trim()) {
-                    textSegments.push({ text: paragraph, source: 'paragraph' });
-                }
-            });
-        }
-
-        // Add list items
-        if (crawlResult.text.lists && crawlResult.text.lists.length > 0) {
-            crawlResult.text.lists.forEach((item: string) => {
-                if (item.trim()) {
-                    textSegments.push({ text: item, source: 'list' });
-                }
-            });
-        }
-
-        if (textSegments.length === 0) {
-            return {
-                success: false,
-                results: [],
-                error: 'No text content found in crawled page'
-            };
-        }
-
-        console.log(`Analyzing ${textSegments.length} text segments from crawled page`);
-
-        // Analyze all segments
         const analysisResults = await analyzeTextSegments(textSegments);
-
-        // Calculate summary
         const hateSpeechCount = analysisResults.filter(r => r.result.isHateSpeech).length;
         const totalConfidence = analysisResults.reduce((sum, r) => sum + r.result.confidence, 0);
-
-        const summary = {
-            totalAnalyzed: analysisResults.length,
-            hateSpeechCount,
-            cleanCount: analysisResults.length - hateSpeechCount,
-            averageConfidence: analysisResults.length > 0 ? totalConfidence / analysisResults.length : 0,
-            url: crawlResult.url,
-            pageTitle: crawlResult.title
-        };
-
-        console.log('=== Crawled Content Analysis Complete ===');
-        console.log(`URL: ${summary.url}`);
-        console.log(`Total: ${summary.totalAnalyzed}, Hate Speech: ${summary.hateSpeechCount}, Clean: ${summary.cleanCount}`);
 
         return {
             success: true,
             results: analysisResults,
-            summary
+            summary: {
+                totalAnalyzed: analysisResults.length,
+                hateSpeechCount,
+                cleanCount: analysisResults.length - hateSpeechCount,
+                averageConfidence: analysisResults.length > 0 ? totalConfidence / analysisResults.length : 0,
+                url: crawlResult.url,
+                pageTitle: crawlResult.title
+            }
         };
     } catch (error) {
-        console.error('Crawled content analysis failed:', error);
-        return {
-            success: false,
-            results: [],
-            error: error instanceof Error ? error.message : String(error)
-        };
+        return { success: false, results: [], error: String(error) };
     }
 }
 
-// ... (wrapper function)
-/**
- * Analyze text for implicit marketing claims
- */
 async function analyzeImplicitClaims(text: string): Promise<any> {
     try {
         const result = await detectImplicitClaims(text);
@@ -390,31 +171,156 @@ async function analyzeImplicitClaims(text: string): Promise<any> {
     }
 }
 
-// Expose API to UI
+// =========================================================================
+// NEW FUNCTIONS (FIXED)
+// =========================================================================
+
+/**
+ * NEW: Create disclaimer text
+ * Uses "Geometric Override" to force size by rewriting width/height.
+ */
+function createDisclaimerText(text: string) {
+    console.log("SANDBOX: Creating disclaimer (Geometric Override)...");
+
+    try {
+        // 1. Create and Add
+        const textNode = editor.createText(text);
+        const parent = editor.context.insertionParent || editor.documentRoot.pages[0].artboards[0];
+        parent.children.append(textNode);
+        
+        // 2. Select it to ensure context is active
+        editor.context.selection = [textNode];
+        const node = editor.context.selection[0] as any;
+
+        // 3. COLOR (Attempt standard set)
+        try {
+            const darkGrey = { red: 0.2, green: 0.2, blue: 0.2, alpha: 1 };
+            if (node.fullContent && node.fullContent.characterStyle) {
+                node.fullContent.characterStyle.fill = darkGrey;
+            }
+        } catch(e) {}
+
+        // 4. THE GEOMETRIC FIX
+        // Instead of setting font size, we force the node to be physically smaller.
+        // A standard disclaimer shouldn't be wider than 300px.
+        try {
+            console.log(`SANDBOX: Original Width: ${node.width}, Height: ${node.height}`);
+            
+            // Calculate scale ratio to bring it down to reasonable width (e.g., 400px)
+            const targetWidth = 400; 
+            
+            if (node.width > targetWidth) {
+                const ratio = targetWidth / node.width;
+                const targetHeight = node.height * ratio;
+                
+                console.log(`SANDBOX: Resizing to ${targetWidth} x ${targetHeight} (Ratio: ${ratio})`);
+                
+                // Try 'resize' method if available (common in scene graphs)
+                if (typeof node.resize === 'function') {
+                    node.resize(targetWidth, targetHeight);
+                } else {
+                    // Fallback: Set properties directly
+                    node.width = targetWidth;
+                    node.height = targetHeight;
+                }
+            }
+        } catch (e) {
+            console.warn("SANDBOX: Geometric resize failed", e);
+        }
+
+        // 5. POSITION (Bottom Center)
+        const currentPage = editor.context.currentPage;
+        if (currentPage) {
+            // Recalculate x based on NEW width
+            const currentWidth = node.width || 400; // Fallback if read failed
+            const x = (currentPage.width / 2) - (currentWidth / 2); 
+            const y = currentPage.height - 60; 
+            
+            if (typeof node.setPosition === 'function') {
+                node.setPosition({ x, y });
+            } else {
+                node.translation = { x, y };
+            }
+        }
+
+        console.log("SANDBOX: Disclaimer created.");
+
+    } catch (e) {
+        console.error("SANDBOX: Critical error creating text:", e);
+    }
+    return true;
+}
+
+/**
+ * NEW: Get details of the selected node for cropping
+ */
+function getSelectionDetails() {
+    const selection = editor.context.selection;
+    
+    if (selection.length === 0) throw new Error("Please select an image first.");
+    if (selection.length > 1) throw new Error("Please select only one image.");
+
+    // FIX: Cast to 'any' to access properties safely
+    const node = selection[0] as any;
+    console.log("SANDBOX: Processing selection type:", node.type);
+
+    let width = node.width;
+    let height = node.height;
+    let x = node.translation?.x ?? 0;
+    let y = node.translation?.y ?? 0;
+
+    // Check mediaRectangle (Common for images/containers)
+    if ((typeof width !== 'number' || typeof height !== 'number') && node.mediaRectangle) {
+        width = node.mediaRectangle.width;
+        height = node.mediaRectangle.height;
+    }
+    
+    // Check local bounds (Fallback)
+    if ((typeof width !== 'number' || typeof height !== 'number') && node.bounds?.local) {
+        width = node.bounds.local.width;
+        height = node.bounds.local.height;
+    }
+
+    if (typeof width !== 'number' || typeof height !== 'number') {
+        throw new Error(`Selected item (${node.type}) does not have accessible dimensions.`);
+    }
+    
+    return {
+        id: node.id,
+        x: x,
+        y: y,
+        width: width,
+        height: height,
+        type: node.type
+    };
+}
+
+// =========================================================================
+// EXPOSE API BLOCK
+// =========================================================================
+
 addOnSandboxSdk.instance.runtime.exposeApi({
-    // Original API (backward compatible)
+    // Original API
     extractText,
     getDocumentInfo,
-
-    // New OCR-enabled APIs
     extractTextWithOCR,
     extractTextFromImagesOnly,
     getDocumentImages,
-
-    // Web Crawler APIs
     crawlWebPage,
     crawlMultiplePages,
-
-    // ML Detection APIs
     configureMLService,
     analyzeTextForHateSpeech,
     analyzeDocumentForHateSpeech,
     analyzeCrawledContentForHateSpeech,
-    analyzeImplicitClaims, // Add to exposed API list
+    analyzeImplicitClaims,
     getMLConfig,
     isMLServiceReady,
     testMLService,
-    clearMLCache
+    clearMLCache,
+
+    // NEWLY ADDED FUNCTIONS
+    createDisclaimerText, 
+    getSelectionDetails   
 });
 
-console.log("Sandbox API initialized - Text extraction, OCR, Web Crawler, and ML Detection APIs available");
+console.log("Sandbox API initialized - All services ready");
