@@ -30,11 +30,11 @@ async function extractText() {
                 for (const node of children) {
                     if (node.type === "Text") {
                         try {
-                            // Access text content through the text property
+                            // Access text content through fullContent.text property
                             const textNode = node as any; // Type assertion for text access
 
-                            if (textNode.text) {
-                                const textContent = textNode.text;
+                            if (textNode.fullContent && textNode.fullContent.text) {
+                                const textContent = textNode.fullContent.text;
                                 console.log(`      Found text: "${textContent}"`);
                                 allText.push(textContent);
                             }
