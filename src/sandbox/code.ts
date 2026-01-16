@@ -13,15 +13,6 @@ import {
     crawlMultiplePages
 } from "./crawlerService";
 import {
-    initializeCloudOCR,
-    extractTextFromImageURL,
-    extractTextFromMultipleImages as extractTextFromMultipleImageURLs,
-    extractTextFromBase64,
-    getOCRConfig,
-    type OCRConfig,
-    type OCRResult
-} from "./cloudOcrService";
-import {
     initializeMLService,
     detectHateSpeech,
     detectHateSpeechBatch,
@@ -35,11 +26,6 @@ import {
     type BatchHateSpeechResult,
     type MLAnalysisResult
 } from "./mlService";
-import {
-    extractTextFromDocumentImagesWithCloudOCR,
-    getDocumentImagesInfo,
-    type DocumentOCRSummary
-} from "./documentImageOCR";
 
 /**
  * Extract all text from the Adobe Express document (Text nodes only)
@@ -208,120 +194,6 @@ async function getDocumentInfo() {
             documentId: "error",
             imageCount: 0,
             images: []
-        };
-    }
-}
-
-/**
- * Configure cloud OCR service
- * @param config - OCR configuration
- */
-function configureCloudOCR(config: Partial<OCRConfig>): void {
-    initializeCloudOCR(config);
-    console.log('Cloud OCR configured:', config);
-}
-
-/**
- * Extract text from image URLs using cloud OCR
- * @param imageUrls - Array of image URLs from crawled pages
- * @returns OCR results
- */
-async function extractTextFromCrawledImages(imageUrls: string[]): Promise<{ success: boolean; results: OCRResult[]; rawText: string; error?: string }> {
-    try {
-        console.log(`=== Starting Cloud OCR for ${imageUrls.length} images ===`);
-
-        const results = await extractTextFromMultipleImageURLs(imageUrls);
-        const rawText = results.map(r => r.text).filter(t => t.length > 0).join('\n');
-
-        console.log(`=== Cloud OCR Complete ===`);
-        console.log(`Processed ${results.length} images`);
-        console.log(`Extracted ${rawText.length} characters`);
-
-        return {
-            success: true,
-            results,
-            rawText
-        };
-    } catch (error) {
-        console.error('=== Cloud OCR Failed ===');
-        console.error('Error:', error);
-
-        return {
-            success: false,
-            results: [],
-            rawText: '',
-            error: error instanceof Error ? error.message : String(error)
-        };
-    }
-}
-
-/**
- * Extract text from single image URL using cloud OCR
- * @param imageUrl - Image URL
- * @returns OCR result
- */
-async function extractTextFromImageUrl(imageUrl: string): Promise<OCRResult> {
-    try {
-        console.log(`=== Extracting text from image: ${imageUrl} ===`);
-        const result = await extractTextFromImageURL(imageUrl);
-        console.log(`Extracted: "${result.text.substring(0, 100)}${result.text.length > 100 ? '...' : ''}"`);
-        return result;
-    } catch (error) {
-        console.error('Image OCR failed:', error);
-        return {
-            text: '',
-            confidence: 0,
-            provider: 'ocrspace',
-            error: error instanceof Error ? error.message : String(error)
-        };
-    }
-}
-
-/**
- * Extract text from all images in the Adobe Express document using cloud OCR
- * This uses the cloud OCR service to process images
- */
-async function extractTextFromDocumentImages(): Promise<DocumentOCRSummary> {
-    try {
-        console.log('=== Extracting text from document images with cloud OCR ===');
-        const result = await extractTextFromDocumentImagesWithCloudOCR();
-
-        console.log(`Processed ${result.processedImages}/${result.totalImages} images`);
-        console.log(`Extracted ${result.rawText.length} characters of text`);
-
-        return result;
-    } catch (error) {
-        console.error('Document image OCR failed:', error);
-        return {
-            success: false,
-            totalImages: 0,
-            processedImages: 0,
-            results: [],
-            rawText: '',
-            error: error instanceof Error ? error.message : String(error)
-        };
-    }
-}
-
-/**
- * Get information about images in the document
- */
-async function getImageInfo(): Promise<any> {
-    try {
-        const images = await getDocumentImagesInfo();
-        console.log(`Found ${images.length} images in document`);
-        return {
-            success: true,
-            count: images.length,
-            images
-        };
-    } catch (error) {
-        console.error('Failed to get image info:', error);
-        return {
-            success: false,
-            count: 0,
-            images: [],
-            error: error instanceof Error ? error.message : String(error)
         };
     }
 }
@@ -518,16 +390,6 @@ addOnSandboxSdk.instance.runtime.exposeApi({
     crawlWebPage,
     crawlMultiplePages,
 
-    // Cloud OCR APIs
-    configureCloudOCR,
-    extractTextFromCrawledImages,
-    extractTextFromImageUrl,
-    getOCRConfig,
-
-    // Document Image OCR APIs
-    extractTextFromDocumentImages,
-    getImageInfo,
-
     // ML Detection APIs
     configureMLService,
     analyzeTextForHateSpeech,
@@ -539,4 +401,4 @@ addOnSandboxSdk.instance.runtime.exposeApi({
     clearMLCache
 });
 
-console.log("Sandbox API initialized - Text extraction, OCR, Cloud OCR, Web Crawler, and ML Detection APIs available");
+console.log("Sandbox API initialized - Text extraction, OCR, Web Crawler, and ML Detection APIs available");

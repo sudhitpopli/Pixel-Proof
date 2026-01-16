@@ -30,6 +30,22 @@
 
 ---
 
+## Phase 2: Image OCR (CURRENT FOCUS)
+
+### Implementation
+- [ ] Add `createImageRendition` to `code.ts`
+- [ ] Add `pytesseract` and `Pillow` to backend
+- [ ] create `/ocr` endpoint in `ml_backend.py`
+- [ ] Update `App.tsx` with OCR button
+- [ ] Update `manifest.json` permissions
+
+### Testing Phase 2
+- [ ] Upload image to Express
+- [ ] Click OCR button
+- [ ] Verify text is returned from Python backend
+
+---
+
 ## Phase 2: Basic Slogan Detection (NEXT)
 
 ### Implementation

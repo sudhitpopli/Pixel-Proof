@@ -1,191 +1,70 @@
-# ComplianceGuard Pro - Fresh Implementation Plan
+# Implementation Plan - Image Extraction & OCR
 
 ## Goal
-Create a **simple, working** Adobe Express add-on that scans text in designs for basic compliance issues.
+Enable the add-on to extract the current view (page/artboard) as an image from the Adobe Express sandbox and perform OCR (Optical Character Recognition) using Tesseract on the backend to extract text from the image.
 
-## Strategy: Start Simple, Build Up
-Instead of trying to build everything at once, we'll create a minimal working version first, then add features incrementally.
-
----
-
-## Phase 1: Minimal Working Add-on (Priority: CRITICAL)
-
-### Objective
-Get a basic add-on running that can extract and display text from Adobe Express documents.
-
-### Files to Create
-1. **src/ui/components/App.tsx** - Simple UI with one button
-2. **src/sandbox/code.ts** - Basic text extraction using Adobe Express SDK
-3. **src/ui/index.tsx** - Entry point (minimal changes)
-
-### Features
-- ✅ Button: "Extract Text"
-- ✅ Display extracted text in a list
-- ✅ No detection logic yet - just prove we can read the document
-
-### Success Criteria
-- Add-on loads in Adobe Express
-- Clicking button shows text from the document
-- No build errors
-
----
-
-## Phase 2: Basic Text Detection (Priority: HIGH)
-
-### Objective
-Add simple trademark detection for 3-5 famous slogans.
-
-### Implementation
-- Inline detection logic in App.tsx (no separate services)
-- Check extracted text against hardcoded slogan list
-- Display results with severity badges
-
-### Slogans to Detect
-1. "Just Do It" (Nike)
-2. "Think Different" (Apple)
-3. "I'm Lovin' It" (McDonald's)
-
-### Success Criteria
-- Detects slogans in document text
-- Shows results with "Critical" severity
-- Suggests alternatives
-
----
-
-## Phase 3: Cultural Sensitivity (Priority: MEDIUM)
-
-### Objective
-Add detection for culturally sensitive numbers.
-
-### Implementation
-- Check for numbers: 4, 13, 666
-- Show which countries are affected
-- Suggest alternatives
-
-### Success Criteria
-- Detects number "4" and warns about China/Japan
-- Detects "13" and warns about Western cultures
-- Shows country-specific explanations
-
----
-
-## Phase 4: Results Dashboard (Priority: MEDIUM)
-
-### Objective
-Create a proper results view with severity summary.
-
-### Features
-- Summary cards (Critical, High, Medium, Low counts)
-- Detailed violation list
-- Fix suggestions for each issue
-
----
-
-## Phase 5: Additional Features (Priority: LOW)
-
-Only implement if Phases 1-4 are working perfectly:
-- Gender-exclusive language detection
-- Violent language detection
-- Color sensitivity
-- PDF export
-- API integrations
-
----
-
-## Technical Approach
-
-### What We'll Do Differently
-1. **No TypeScript in services** - Keep everything in .tsx files
-2. **No complex imports** - All logic inline in components
-3. **Test after each phase** - Don't move forward until current phase works
-4. **Use @ts-ignore liberally** - Focus on functionality over type safety
-5. **Console logging everywhere** - Debug issues immediately
-
-### File Structure (Simplified)
-```
-src/
-├── ui/
-│   ├── components/
-│   │   ├── App.tsx (ALL logic here)
-│   │   └── App.css (styling)
-│   └── index.tsx (minimal entry point)
-└── sandbox/
-    └── code.ts (text extraction only)
-```
-
-### No Separate Services
-All detection logic will be inline functions in App.tsx:
-- `detectSlogans(text)`
-- `detectCulturalIssues(text)`
-- `detectLanguageIssues(text)`
-
----
-
-## Implementation Order
-
-### Step 1: Clean Slate
-- ✅ Delete all existing service files
-- ✅ Delete complex components
-- ✅ Keep only App.css
-
-### Step 2: Phase 1 Implementation
-- Create minimal App.tsx with "Extract Text" button
-- Create simple sandbox code.ts
-- Test extraction works
-
-### Step 3: Phase 2 Implementation
-- Add slogan detection inline
-- Show results
-- Test with real slogans
-
-### Step 4: Iterate
-- Only add Phase 3+ if Phase 2 works perfectly
-
----
-
-## Key Principles
-
+## User Review Required
 > [!IMPORTANT]
-> **WORKING CODE > PERFECT CODE**
-> 
-> We will prioritize:
-> 1. Getting it to run
-> 2. Getting it to work
-> 3. Making it pretty
-> 4. Making it perfect
+> **System Requirement**: Tesseract OCR must be installed on the host machine where the Python backend is running.
+> - **Windows**: Download and install from [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki).
+> - **Path**: Ensure `tesseract.exe` is in your system PATH, or we may need to configure the path in `.env`.
 
 > [!WARNING]
-> **DO NOT:**
-> - Create separate service files until basic version works
-> - Add TypeScript types that cause build errors
-> - Implement multiple features at once
-> - Move forward if current phase has errors
+> **Permissions**: The `manifest.json` will be updated to include `"renditionPreview": true`. This allows the add-on to generate renditions of the document for processing.
 
----
+## Proposed Changes
 
-## Success Metrics
+### Configuration & Dependencies
 
-### Phase 1 Success
-- [ ] Add-on loads without errors
-- [ ] Can click "Extract Text" button
-- [ ] See text from document displayed
+#### [MODIFY] [manifest.json](file:///c:/Users/Sudhit/Documents/Study%20Material/Pixel-Proof/src/manifest.json)
+- Add `"renditionPreview": true` to `requirements`.
+- Add `"allow-downloads"` to `permissions.sandbox` (optional, but good practice for ensuring export capabilities).
 
-### Phase 2 Success  
-- [ ] Detects "Just Do It" in document
-- [ ] Shows "Critical" severity
-- [ ] Suggests removal/rephrasing
+#### [MODIFY] [requirements.txt](file:///c:/Users/Sudhit/Documents/Study%20Material/Pixel-Proof/server/requirements.txt)
+- Add `pytesseract`
+- Add `Pillow` (PIL)
 
-### Phase 3 Success
-- [ ] Detects number "4"
-- [ ] Shows affected countries
-- [ ] Suggests alternatives
+### Backend (Python)
 
----
+#### [MODIFY] [ml_backend.py](file:///c:/Users/Sudhit/Documents/Study%20Material/Pixel-Proof/server/ml_backend.py)
+- Import `pytesseract` and `PIL.Image`.
+- Add configuration for Tesseract path (optional, via `.env`).
+- Create a new endpoint `POST /ocr`.
+    - Accept `multipart/form-data` with an image file.
+    - Process image using `pytesseract.image_to_string`.
+    - Return the extracted text.
 
-## Next Steps
+### Frontend (Add-on)
 
-1. Review this plan
-2. Get approval
-3. Implement Phase 1 only
-4. Test thoroughly
-5. Only then move to Phase 2
+#### [MODIFY] [code.ts](file:///c:/Users/Sudhit/Documents/Study%20Material/Pixel-Proof/src/sandbox/code.ts)
+- Implement `createImageRendition` function in the sandbox.
+    - Check `editor.documentRoot` availability.
+    - Call `addOnUISdk.app.document.createRenditions`.
+    - Return the blob/buffer to the UI.
+
+#### [MODIFY] [App.tsx](file:///c:/Users/Sudhit/Documents/Study%20Material/Pixel-Proof/src/ui/components/App.tsx)
+- Add a new button: "Extract Text (OCR)".
+- Helper function to:
+    - Call `sandbox.createImageRendition`.
+    - Convert blob to `FormData`.
+    - Send to `http://localhost:5000/ocr`.
+    - Display the result.
+
+## Verification Plan
+
+### Automated Tests
+- None for this phase (visual/integration feature).
+
+### Manual Verification
+1.  **Setup**:
+    - Install Tesseract on your Windows machine.
+    - Run `pip install -r server/requirements.txt`.
+    - Start backend: `python server/ml_backend.py`.
+    - Rebuild and deploy add-on: `npm run build` (or similar).
+2.  **Execution**:
+    - Open Adobe Express document.
+    - Add an image with text (e.g., a screenshot of a quote).
+    - Open the Add-on.
+    - Click "Extract Text (OCR)".
+3.  **Result**:
+    - The add-on should display the text extracted from the image.
