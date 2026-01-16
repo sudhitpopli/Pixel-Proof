@@ -35,7 +35,6 @@ import {
 
 async function extractText() {
     try {
-        console.log("=== Starting Text Extraction (Text Nodes Only) ===");
         const allText: string[] = [];
         const doc = editor.documentRoot;
         for (const page of doc.pages) {
@@ -201,28 +200,17 @@ function createDisclaimerText(text: string) {
         } catch(e) {}
 
         // 4. THE GEOMETRIC FIX
-        // Instead of setting font size, we force the node to be physically smaller.
-        // A standard disclaimer shouldn't be wider than 300px.
+        // Force the node to be 400px wide. This physically shrinks the text
+        // if it was created at a massive default size.
         try {
-            console.log(`SANDBOX: Original Width: ${node.width}, Height: ${node.height}`);
-            
-            // Calculate scale ratio to bring it down to reasonable width (e.g., 400px)
             const targetWidth = 400; 
-            
             if (node.width > targetWidth) {
                 const ratio = targetWidth / node.width;
                 const targetHeight = node.height * ratio;
                 
-                console.log(`SANDBOX: Resizing to ${targetWidth} x ${targetHeight} (Ratio: ${ratio})`);
-                
-                // Try 'resize' method if available (common in scene graphs)
-                if (typeof node.resize === 'function') {
-                    node.resize(targetWidth, targetHeight);
-                } else {
-                    // Fallback: Set properties directly
-                    node.width = targetWidth;
-                    node.height = targetHeight;
-                }
+                // Fallback: Set properties directly
+                node.width = targetWidth;
+                node.height = targetHeight;
             }
         } catch (e) {
             console.warn("SANDBOX: Geometric resize failed", e);
@@ -231,8 +219,7 @@ function createDisclaimerText(text: string) {
         // 5. POSITION (Bottom Center)
         const currentPage = editor.context.currentPage;
         if (currentPage) {
-            // Recalculate x based on NEW width
-            const currentWidth = node.width || 400; // Fallback if read failed
+            const currentWidth = node.width || 400; 
             const x = (currentPage.width / 2) - (currentWidth / 2); 
             const y = currentPage.height - 60; 
             
@@ -262,7 +249,6 @@ function getSelectionDetails() {
 
     // FIX: Cast to 'any' to access properties safely
     const node = selection[0] as any;
-    console.log("SANDBOX: Processing selection type:", node.type);
 
     let width = node.width;
     let height = node.height;

@@ -1,13 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Theme } from "@swc-react/theme";
-import refreshIcon from "../../Assets/refresh-icon.svg";
-import copyrightIcon from "../../Assets/copyright-icon.svg";
-import visionIcon from "../../Assets/vision-icon.svg";
-import legalIcon from "../../Assets/legal-icon.svg";
-import menuIcon from "../../Assets/menu-icon.svg";
+import { Button } from "@swc-react/button";
 import "./App.css";
 
-// INTERFACES (Keep existing ones)
+// INTERFACES
 interface AnalyzedSegment {
     text: string;
     label: string;
@@ -21,7 +17,7 @@ interface AppProps {
 }
 
 // ==========================================
-// 1. MULTI-LANGUAGE DISCLAIMER TEMPLATES
+// DISCLAIMER TEMPLATES
 // ==========================================
 const DISCLAIMER_TEMPLATES: Record<string, Record<string, string>> = {
     "English": {
@@ -51,7 +47,7 @@ const DISCLAIMER_TEMPLATES: Record<string, Record<string, string>> = {
 };
 
 const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
-    // --- EXISTING STATE ---
+    // --- STATE ---
     const [rawOcrText, setRawOcrText] = useState<string>("");
     const [rawDocText, setRawDocText] = useState<string>("");
     const [mlResults, setMlResults] = useState<any>(null);
@@ -59,12 +55,12 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [error, setError] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'analysis' | 'raw'>('analysis');
 
-    // --- DISCLAIMER STATE ---
+    // Disclaimer State
     const [discLang, setDiscLang] = useState<string>("English");
     const [discType, setDiscType] = useState<string>("General");
     const [discText, setDiscText] = useState<string>(DISCLAIMER_TEMPLATES["English"]["General"]);
 
-    // --- SAVE IMAGE STATE (UPDATED) ---
+    // Save Image State
     const [isSavingImage, setIsSavingImage] = useState(false);
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
@@ -87,11 +83,11 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
-    // 2. Save Selected Image (FIXED)
-const handleSaveSelectedImage = async () => {
+    // 2. Save Selected Image
+    const handleSaveSelectedImage = async () => {
         setIsSavingImage(true);
         setError(null);
-        setDownloadUrl(null); // Reset previous download
+        setDownloadUrl(null);
 
         try {
             // STEP A: Get Selection Coordinates
@@ -130,7 +126,6 @@ const handleSaveSelectedImage = async () => {
                 const ctx = canvas.getContext('2d');
 
                 if (ctx) {
-                    // Crop logic
                     ctx.drawImage(
                         img, 
                         selection.x, selection.y, selection.width, selection.height, 
@@ -143,11 +138,9 @@ const handleSaveSelectedImage = async () => {
                             return;
                         }
                         
-                        // INSTEAD OF AUTO-CLICKING, SAVE THE URL TO STATE
                         const finalUrl = URL.createObjectURL(blob);
-                        setDownloadUrl(finalUrl); // <--- This reveals the button
+                        setDownloadUrl(finalUrl);
                         
-                        // Cleanup page URL (but keep finalUrl alive for the button)
                         URL.revokeObjectURL(pageUrl);
                         setIsSavingImage(false);
                         console.log("Image processed. Ready for download.");
@@ -168,7 +161,8 @@ const handleSaveSelectedImage = async () => {
             setIsSavingImage(false);
         }
     };
-    // 3. Advance Spell Check (Keep existing)
+
+    // 3. Advance Spell Check
     const formatBackendResponse = (analysisData: any) => {
         const segments: AnalyzedSegment[] = analysisData.segments || [];
         let hateCount = 0;
@@ -189,7 +183,7 @@ const handleSaveSelectedImage = async () => {
         setRawDocText("");
 
         try {
-            // 1. OCR SCAN (From Image)
+            // OCR SCAN
             let ocrTxt = "";
             try {
                 if (addOnUISdk.app.document.createRenditions) {
@@ -204,11 +198,9 @@ const handleSaveSelectedImage = async () => {
                         setRawOcrText(ocrTxt);
                     }
                 }
-            } catch (e) {
-                console.warn("OCR Skipped/Failed:", e);
-            }
+            } catch (e) { console.warn("OCR Skipped/Failed:", e); }
 
-            // 2. DOCUMENT TEXT (From Sandbox)
+            // DOCUMENT TEXT
             let docTxt = "";
             try {
                 const extractionResult = await sandboxProxy.extractText();
@@ -216,11 +208,9 @@ const handleSaveSelectedImage = async () => {
                     docTxt = extractionResult.textElements.join(' ');
                     setRawDocText(docTxt);
                 }
-            } catch (e) {
-                console.warn("Doc Text Extraction Failed:", e);
-            }
+            } catch (e) { console.warn("Doc Text Extraction Failed:", e); }
 
-            // 3. COMBINE & ANALYZE
+            // COMBINE & ANALYZE
             const combinedText = `${ocrTxt}\n ${docTxt}`.trim();
             if (!combinedText) throw new Error("No text found in either OCR or Document Layers.");
 
@@ -270,7 +260,7 @@ const handleSaveSelectedImage = async () => {
                             </div>
                         )}
 
-                    {error && <div className="error-message">{error}</div>}
+                        {error && <div className="error-message" style={{color: "red", marginTop: "10px"}}>{error}</div>}
 
                         {viewMode === 'analysis' && mlResults && (
                             <div style={{ marginTop: "15px" }}>
@@ -293,27 +283,12 @@ const handleSaveSelectedImage = async () => {
                                         </div>
                                     </div>
                                 )}
-                                <div style={{ border: "1px solid #ccc", padding: "15px", borderRadius: "6px", backgroundColor: "#fff" }}>
-                                    <h4 style={{marginTop: 0, marginBottom: "10px", fontSize: "14px", color: "#555"}}>📄 Full Text Context</h4>
-                                    <div style={{ lineHeight: "1.8", fontSize: "14px" }}>
-                                        {mlResults.segments.map((seg: AnalyzedSegment, idx: number) => (
-                                            <span key={idx} style={{ backgroundColor: seg.is_hate ? "rgba(255, 0, 0, 0.1)" : "transparent", borderBottom: seg.is_hate ? "2px solid red" : "none", marginRight: "5px", padding: "2px 0", borderRadius: "3px", cursor: seg.is_hate ? "help" : "default" }} title={seg.is_hate ? `${seg.label} (${(seg.confidence * 100).toFixed(0)}%)` : ""}>{seg.text}</span>
-                                        ))}
-                                    </div>
-                                </div>
                             </div>
                         )}
-
+                        
                         {viewMode === 'raw' && (
                             <div style={{ marginTop: "15px" }}>
-                                <div style={{ marginBottom: "20px" }}>
-                                    <strong>🖼️ OCR Text (From Image):</strong>
-                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawOcrText || "(No text found in image)"}</div>
-                                </div>
-                                <div>
-                                    <strong>📄 Document Text (From Layers):</strong>
-                                    <div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px", borderRadius: "4px", maxHeight: "150px", overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawDocText || "(No text layers found)"}</div>
-                                </div>
+                                <div><strong>OCR Text:</strong><div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px" }}>{rawOcrText || "(None)"}</div></div>
                             </div>
                         )}
                     </div>
@@ -337,60 +312,60 @@ const handleSaveSelectedImage = async () => {
                             </div>
                         </div>
                         <div style={{ padding: "10px", backgroundColor: "#f5f5f5", borderRadius: "6px", border: "1px solid #ddd", marginBottom: "15px" }}>
-                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Preview (Editable):</div>
+                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Preview:</div>
                             <textarea value={discText} onChange={(e) => setDiscText(e.target.value)} style={{ width: "100%", height: "80px", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc", fontFamily: "inherit", resize: "vertical" }}/>
                         </div>
                         <Button size="m" variant="cta" onClick={handleInsertDisclaimer} style={{ width: "100%" }}>⬇️ Insert into Document</Button>
                     </div>
-                    {/* SECTION 3: SAVE SELECTION (UPDATED UI) */}
-                <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
-                    <h2>💾 Save Selection</h2>
-                    <p>Select an image on the canvas and click below.</p>
-                    
-                    <Button 
-                        size="m" 
-                        onClick={handleSaveSelectedImage} 
-                        disabled={isSavingImage}
-                        style={{ width: "100%" }}
-                        variant="secondary"
-                    >
-                        {isSavingImage ? "Processing..." : "✂️ Crop & Prepare"}
-                    </Button>
-                    {/* NEW: The Manual Download Button (Standard HTML Version) */}
-                    {downloadUrl && !isSavingImage && (
-                        <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#e3f2fd", borderRadius: "6px", textAlign: "center" }}>
-                            <div style={{ marginBottom: "8px", fontSize: "12px", color: "#0d47a1" }}>Image is ready!</div>
-                            
-                            {/* STANDARD HTML LINK STYLED AS A BUTTON */}
-                            {/* This bypasses all component issues by using a native <a> tag */}
-                            <a 
-                                href={downloadUrl} 
-                                download={`extracted-image-${Date.now()}.png`}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ 
-                                    display: "block",
-                                    width: "100%",
-                                    padding: "10px 0",
-                                    backgroundColor: "#0265DC", // Standard Adobe Blue
-                                    color: "white",
-                                    textDecoration: "none",
-                                    borderRadius: "16px",       // Rounded corners like SWC
-                                    fontWeight: "bold",
-                                    fontSize: "14px",
-                                    cursor: "pointer",
-                                    border: "none",
-                                    boxSizing: "border-box"
-                                }}
-                            >
-                                ⬇️ Save to Computer
-                            </a>
 
-                            <div style={{ marginTop: "10px", fontSize: "11px", color: "#666" }}>
-                                (If download doesn't start, right-click button &gt; "Save Link As")
+                    {/* SECTION 3: SAVE SELECTION */}
+                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
+                        <h2>💾 Save Selection</h2>
+                        <p>Select an image on the canvas and click below.</p>
+                        
+                        <Button 
+                            size="m" 
+                            onClick={handleSaveSelectedImage} 
+                            disabled={isSavingImage}
+                            style={{ width: "100%" }}
+                            variant="secondary"
+                        >
+                            {isSavingImage ? "Processing..." : "✂️ Crop & Prepare"}
+                        </Button>
+                        
+                        {/* THE FIX: Manual HTML Link for Download */}
+                        {downloadUrl && !isSavingImage && (
+                            <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#e3f2fd", borderRadius: "6px", textAlign: "center" }}>
+                                <div style={{ marginBottom: "8px", fontSize: "12px", color: "#0d47a1" }}>Image is ready!</div>
+                                
+                                <a 
+                                    href={downloadUrl} 
+                                    download={`extracted-image-${Date.now()}.png`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ 
+                                        display: "block",
+                                        width: "100%",
+                                        padding: "10px 0",
+                                        backgroundColor: "#0265DC", 
+                                        color: "white",
+                                        textDecoration: "none",
+                                        borderRadius: "16px",
+                                        fontWeight: "bold",
+                                        fontSize: "14px",
+                                        cursor: "pointer",
+                                        border: "none",
+                                        boxSizing: "border-box"
+                                    }}
+                                >
+                                    ⬇️ Save to Computer
+                                </a>
+
+                                <div style={{ marginTop: "10px", fontSize: "11px", color: "#666" }}>
+                                    (If download doesn't start, right-click button &gt; "Save Link As")
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
                     </div>
                 </main>
             </div>
