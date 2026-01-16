@@ -1,140 +1,95 @@
-// Document Sandbox - Extract text from Adobe Express
 import addOnSandboxSdk from "add-on-sdk-document-sandbox";
 import { editor } from "express-document-sdk";
 
-async function extractDesignData() {
+/**
+ * Extract all text from the Adobe Express document
+ * Iterates through pages, artboards, and text nodes
+ */
+async function extractText() {
     try {
-        const doc = editor.documentRoot;
-        const colors: string[] = [];
-        const textElements: any[] = [];
-        const images: any[] = [];
-        const fonts = new Set<string>();
+        console.log("=== Starting Text Extraction ===");
 
-        console.log('=== Starting extraction ===');
+        const allText: string[] = [];
+        const doc = editor.documentRoot;
+
+        console.log(`Document has ${doc.pages.length} page(s)`);
 
         // Iterate through all pages
         for (const page of doc.pages) {
-            console.log('Processing page');
+            console.log(`Processing page: ${page.id}`);
 
             // Iterate through all artboards on the page
             for (const artboard of page.artboards) {
-                console.log('Processing artboard');
+                console.log(`  Processing artboard: ${artboard.id}`);
 
                 // Get all children in the artboard
-                const allNodes = Array.from(artboard.allChildren);
-                console.log('Total nodes:', allNodes.length);
+                const children = Array.from(artboard.allChildren);
+                console.log(`    Found ${children.length} node(s)`);
 
-                for (const node of allNodes) {
-                    console.log('Node type:', node.type);
-
-                    // Extract text nodes
+                // Extract text from Text nodes
+                for (const node of children) {
                     if (node.type === "Text") {
                         try {
-                            // @ts-ignore - TextNode has textFlow
-                            const textFlow = node.textFlow;
-                            let fullText = "";
+                            // Access text content through the text property
+                            const textNode = node as any; // Type assertion for text access
 
-                            if (textFlow && textFlow.paragraphs) {
-                                for (const paragraph of textFlow.paragraphs) {
-                                    for (const textRun of paragraph.textRuns) {
-                                        fullText += textRun.text;
-                                        if (textRun.fontFamily) {
-                                            fonts.add(textRun.fontFamily);
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (fullText) {
-                                console.log('Found text:', fullText);
-                                textElements.push({
-                                    id: node.id,
-                                    text: fullText,
-                                    fontSize: 16,
-                                    fontFamily: Array.from(fonts)[0] || 'Arial'
-                                });
+                            if (textNode.text) {
+                                const textContent = textNode.text;
+                                console.log(`      Found text: "${textContent}"`);
+                                allText.push(textContent);
                             }
                         } catch (error) {
-                            console.error('Error extracting text:', error);
+                            console.error(`      Error extracting text from node:`, error);
                         }
-                    }
-
-                    // Extract colors from fills
-                    // @ts-ignore - fills exists on visual nodes
-                    if (node.fills && node.fills.length > 0) {
-                        // @ts-ignore
-                        for (const fill of node.fills) {
-                            if (fill.type === "solid") {
-                                const color = fill.color;
-                                const hexColor = `#${Math.round(color.red * 255).toString(16).padStart(2, '0')}${Math.round(color.green * 255).toString(16).padStart(2, '0')}${Math.round(color.blue * 255).toString(16).padStart(2, '0')}`;
-                                if (!colors.includes(hexColor)) {
-                                    colors.push(hexColor);
-                                }
-                            }
-                        }
-                    }
-
-                    // Extract images
-                    if (node.type === "MediaContainer") {
-                        images.push({
-                            id: node.id,
-                            // @ts-ignore
-                            width: node.width || 0,
-                            // @ts-ignore
-                            height: node.height || 0
-                        });
                     }
                 }
             }
         }
 
-        const result = {
-            colors,
-            textElements,
-            images,
-            videos: [],
-            fonts: Array.from(fonts),
-            symbols: []
-        };
-
-        console.log('=== Extraction complete ===');
-        console.log('Result:', result);
-
-        return result;
-    } catch (error) {
-        console.error('=== Extraction failed ===');
-        console.error('Error:', error);
+        console.log("=== Extraction Complete ===");
+        console.log(`Total text elements found: ${allText.length}`);
 
         return {
-            colors: [],
+            success: true,
+            textElements: allText,
+            count: allText.length
+        };
+
+    } catch (error) {
+        console.error("=== Extraction Failed ===");
+        console.error("Error:", error);
+
+        return {
+            success: false,
             textElements: [],
-            images: [],
-            videos: [],
-            fonts: [],
-            symbols: []
+            count: 0,
+            error: error instanceof Error ? error.message : String(error)
         };
     }
 }
 
-async function getDocumentMetadata() {
+/**
+ * Get document metadata
+ */
+async function getDocumentInfo() {
     try {
         const doc = editor.documentRoot;
         return {
-            documentId: doc.id || 'unknown',
-            title: 'Adobe Express Document',
-            pageCount: doc.pages.length || 1
+            pageCount: doc.pages.length,
+            documentId: doc.id || "unknown"
         };
     } catch (error) {
         return {
-            documentId: 'error',
-            title: 'Error',
-            pageCount: 0
+            pageCount: 0,
+            documentId: "error"
         };
     }
 }
 
 // Expose API to UI
 addOnSandboxSdk.instance.runtime.exposeApi({
-    extractDesignData,
-    getDocumentMetadata
+    extractText,
+    getDocumentInfo
 });
+
+console.log("Sandbox API initialized - extractText and getDocumentInfo available");
