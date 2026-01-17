@@ -281,6 +281,270 @@ function getSelectionDetails() {
     };
 }
 
+/**
+ * NEW: Extract colors and fonts from all document nodes
+ */
+async function extractDocumentColorsAndFonts() {
+    try {
+        const colors = new Set<string>();
+        const fonts = new Set<string>();
+        const doc = editor.documentRoot;
+        
+        for (const page of doc.pages) {
+            for (const artboard of page.artboards) {
+                const children = Array.from(artboard.allChildren);
+                for (const node of children) {
+                    try {
+                        const nodeAny = node as any;
+                        
+                        // Extract colors from various properties
+                        if (nodeAny.fill) {
+                            const color = colorToString(nodeAny.fill);
+                            if (color) colors.add(color);
+                        }
+                        if (nodeAny.stroke?.fill) {
+                            const color = colorToString(nodeAny.stroke.fill);
+                            if (color) colors.add(color);
+                        }
+                        
+                        // For Text nodes, extract font and text color
+                        if (node.type === "Text" && nodeAny.fullContent) {
+                            // Extract font family
+                            if (nodeAny.fullContent.characterStyle?.fontFamily) {
+                                fonts.add(nodeAny.fullContent.characterStyle.fontFamily);
+                            }
+                            
+                            // Extract text color
+                            if (nodeAny.fullContent.characterStyle?.fill) {
+                                const color = colorToString(nodeAny.fullContent.characterStyle.fill);
+                                if (color) colors.add(color);
+                            }
+                            
+                            // Check character style ranges
+                            if (nodeAny.fullContent.characterStyleRanges) {
+                                for (const range of nodeAny.fullContent.characterStyleRanges) {
+                                    if (range.characterStyle?.fontFamily) {
+                                        fonts.add(range.characterStyle.fontFamily);
+                                    }
+                                    if (range.characterStyle?.fill) {
+                                        const color = colorToString(range.characterStyle.fill);
+                                        if (color) colors.add(color);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error extracting colors/fonts from node:`, error);
+                    }
+                }
+            }
+        }
+        
+        return {
+            success: true,
+            colors: Array.from(colors),
+            fonts: Array.from(fonts)
+        };
+    } catch (error) {
+        return {
+            success: false,
+            colors: [],
+            fonts: [],
+            error: String(error)
+        };
+    }
+}
+
+/**
+ * Helper: Convert color object to hex string
+ */
+function colorToString(color: any): string | null {
+    try {
+        if (typeof color === 'string') {
+            // Already a string, check if it's hex
+            if (color.startsWith('#')) return color.toUpperCase();
+            return null;
+        }
+        
+        if (color && typeof color === 'object') {
+            // RGB object: {red, green, blue, alpha}
+            if (typeof color.red === 'number' && typeof color.green === 'number' && typeof color.blue === 'number') {
+                const r = Math.round(color.red * 255).toString(16).padStart(2, '0');
+                const g = Math.round(color.green * 255).toString(16).padStart(2, '0');
+                const b = Math.round(color.blue * 255).toString(16).padStart(2, '0');
+                return `#${r}${g}${b}`.toUpperCase();
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+/**
+ * NEW: Apply color and font suggestions to document
+ */
+async function applyThemeSuggestions(suggestions: { colors?: Array<{ from: string, to: string }>, fonts?: Array<{ from: string, to: string }> }) {
+    try {
+        const doc = editor.documentRoot;
+        let updateCount = 0;
+        
+        const colorMap = new Map<string, string>();
+        if (suggestions.colors && suggestions.colors.length > 0) {
+            suggestions.colors.forEach(({ from, to }) => {
+                const fromUpper = from.toUpperCase().trim();
+                const toUpper = to.toUpperCase().trim();
+                if (fromUpper && toUpper) {
+                    colorMap.set(fromUpper, toUpper);
+                }
+            });
+        }
+        
+        const fontMap = new Map<string, string>();
+        if (suggestions.fonts && suggestions.fonts.length > 0) {
+            suggestions.fonts.forEach(({ from, to }) => {
+                const fromLower = from.toLowerCase().trim();
+                const toTrimmed = to.trim();
+                if (fromLower && toTrimmed) {
+                    fontMap.set(fromLower, toTrimmed);
+                }
+            });
+        }
+        
+        for (const page of doc.pages) {
+            for (const artboard of page.artboards) {
+                const children = Array.from(artboard.allChildren);
+                for (const node of children) {
+                    try {
+                        const nodeAny = node as any;
+                        let updated = false;
+                        
+                        // Apply color changes
+                        if (colorMap.size > 0) {
+                            if (nodeAny.fill) {
+                                const currentColor = colorToString(nodeAny.fill);
+                                if (currentColor) {
+                                    const currentColorUpper = currentColor.toUpperCase();
+                                    if (colorMap.has(currentColorUpper)) {
+                                        const newColor = hexToColorObject(colorMap.get(currentColorUpper)!);
+                                        if (newColor) {
+                                            nodeAny.fill = newColor;
+                                            updated = true;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (nodeAny.stroke?.fill) {
+                                const currentColor = colorToString(nodeAny.stroke.fill);
+                                if (currentColor) {
+                                    const currentColorUpper = currentColor.toUpperCase();
+                                    if (colorMap.has(currentColorUpper)) {
+                                        const newColor = hexToColorObject(colorMap.get(currentColorUpper)!);
+                                        if (newColor) {
+                                            nodeAny.stroke.fill = newColor;
+                                            updated = true;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // For Text nodes
+                            if (node.type === "Text" && nodeAny.fullContent) {
+                                if (nodeAny.fullContent.characterStyle?.fill) {
+                                    const currentColor = colorToString(nodeAny.fullContent.characterStyle.fill);
+                                    if (currentColor) {
+                                        const currentColorUpper = currentColor.toUpperCase();
+                                        if (colorMap.has(currentColorUpper)) {
+                                            const newColor = hexToColorObject(colorMap.get(currentColorUpper)!);
+                                            if (newColor) {
+                                                nodeAny.fullContent.characterStyle.fill = newColor;
+                                                updated = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if (nodeAny.fullContent.characterStyleRanges) {
+                                    for (const range of nodeAny.fullContent.characterStyleRanges) {
+                                        if (range.characterStyle?.fill) {
+                                            const currentColor = colorToString(range.characterStyle.fill);
+                                            if (currentColor) {
+                                                const currentColorUpper = currentColor.toUpperCase();
+                                                if (colorMap.has(currentColorUpper)) {
+                                                    const newColor = hexToColorObject(colorMap.get(currentColorUpper)!);
+                                                    if (newColor) {
+                                                        range.characterStyle.fill = newColor;
+                                                        updated = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Apply font changes
+                        if (fontMap.size > 0 && node.type === "Text" && nodeAny.fullContent) {
+                            if (nodeAny.fullContent.characterStyle?.fontFamily) {
+                                const currentFont = nodeAny.fullContent.characterStyle.fontFamily.toLowerCase();
+                                if (fontMap.has(currentFont)) {
+                                    nodeAny.fullContent.characterStyle.fontFamily = fontMap.get(currentFont)!;
+                                    updated = true;
+                                }
+                            }
+                            
+                            if (nodeAny.fullContent.characterStyleRanges) {
+                                for (const range of nodeAny.fullContent.characterStyleRanges) {
+                                    if (range.characterStyle?.fontFamily) {
+                                        const currentFont = range.characterStyle.fontFamily.toLowerCase();
+                                        if (fontMap.has(currentFont)) {
+                                            range.characterStyle.fontFamily = fontMap.get(currentFont)!;
+                                            updated = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (updated) updateCount++;
+                    } catch (error) {
+                        console.error(`Error applying suggestions to node:`, error);
+                    }
+                }
+            }
+        }
+        
+        return {
+            success: true,
+            updateCount
+        };
+    } catch (error) {
+        return {
+            success: false,
+            updateCount: 0,
+            error: String(error)
+        };
+    }
+}
+
+/**
+ * Helper: Convert hex string to color object
+ */
+function hexToColorObject(hex: string): { red: number, green: number, blue: number, alpha: number } | null {
+    try {
+        const cleanHex = hex.replace('#', '');
+        const r = parseInt(cleanHex.substring(0, 2), 16) / 255;
+        const g = parseInt(cleanHex.substring(2, 4), 16) / 255;
+        const b = parseInt(cleanHex.substring(4, 6), 16) / 255;
+        return { red: r, green: g, blue: b, alpha: 1 };
+    } catch (error) {
+        return null;
+    }
+}
+
 // =========================================================================
 // EXPOSE API BLOCK
 // =========================================================================
@@ -306,7 +570,9 @@ addOnSandboxSdk.instance.runtime.exposeApi({
 
     // NEWLY ADDED FUNCTIONS
     createDisclaimerText, 
-    getSelectionDetails   
+    getSelectionDetails,
+    extractDocumentColorsAndFonts,
+    applyThemeSuggestions
 });
 
 console.log("Sandbox API initialized - All services ready");
