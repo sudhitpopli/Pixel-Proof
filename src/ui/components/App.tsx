@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Theme } from "@swc-react/theme";
 import copyrightIcon from "../../Assets/Vector.svg";
 import proofreadIcon from "../../Assets/Vector-1.svg";
@@ -35,6 +35,9 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     // Navigation State
     const [activeTab, setActiveTab] = useState<'copyright' | 'proofread' | 'legal' | 'menu'>('proofread');
 
+    // Ref for scrolling to textarea/div
+    const textareaRef = useRef<HTMLDivElement>(null);
+
     // Disclaimer State
     const [disclaimerLanguage, setDisclaimerLanguage] = useState<string>("English");
     
@@ -54,6 +57,12 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             setDisclaimerText(disclaimerTemplates[disclaimerLanguage]);
         }
     }, [disclaimerLanguage]);
+
+    // Auto-scan on component mount
+    useEffect(() => {
+        // Trigger scan automatically when add-on loads
+        handleAdvanceSpellCheck();
+    }, []); // Empty dependency array means this runs once on mount
 
     // --- HELPER: FORMATTING ---
     const formatBackendResponse = (analysisData: any) => {
@@ -156,13 +165,77 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
-    // Get hateful text for display
-    const hatefulText = mlResults 
-        ? mlResults.segments
-            .filter((seg: AnalyzedSegment) => seg.is_hate)
-            .map((seg: AnalyzedSegment) => seg.text)
-            .join('\n')
-        : '';
+    // Function to highlight hateful words in full combined text (to avoid duplicates)
+    const getHighlightedText = () => {
+        if (!mlResults || (!rawOcrText && !rawDocText)) {
+            return '<span style="color: #999;">Hateful content will appear here...</span>';
+        }
+        
+        // Combine OCR and document text - this is the full original text
+        const combinedText = `${rawOcrText}\n${rawDocText}`.trim();
+        if (!combinedText) return '';
+        
+        const hatefulSegments = mlResults.segments.filter((seg: AnalyzedSegment) => seg.is_hate);
+        if (hatefulSegments.length === 0) {
+            // No hateful content, return plain text
+            return combinedText.replace(/\n/g, '<br>');
+        }
+        
+        // Remove duplicate segments (same text content, case-insensitive)
+        const uniqueSegments: AnalyzedSegment[] = Array.from(
+            new Map<string, AnalyzedSegment>(hatefulSegments.map(seg => [seg.text.toLowerCase().trim(), seg])).values()
+        );
+        
+        // Escape HTML to prevent XSS
+        let highlightedText = combinedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        
+        // Sort by length (longest first) to handle overlapping matches correctly
+        const sortedSegments = [...uniqueSegments].sort((a, b) => b.text.length - a.text.length);
+        
+        // Track positions to avoid double highlighting
+        const processedRanges: Array<{start: number, end: number}> = [];
+        
+        sortedSegments.forEach((seg: AnalyzedSegment) => {
+            const segText = seg.text.trim();
+            // Escape for regex and HTML
+            const escapedForRegex = segText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const escapedForHTML = segText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escapedForRegexHTML = escapedForHTML.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            
+            const regex = new RegExp(escapedForRegexHTML, 'gi');
+            let match;
+            const matches: Array<{start: number, end: number, text: string}> = [];
+            
+            // Collect all matches first
+            while ((match = regex.exec(highlightedText)) !== null) {
+                matches.push({
+                    start: match.index,
+                    end: match.index + match[0].length,
+                    text: match[0]
+                });
+            }
+            
+            // Apply highlights from end to start to preserve indices
+            matches.reverse().forEach(match => {
+                // Check if this range overlaps with already processed ranges
+                const overlaps = processedRanges.some(range => 
+                    (match.start < range.end && match.end > range.start)
+                );
+                
+                if (!overlaps) {
+                    processedRanges.push({ start: match.start, end: match.end });
+                    const before = highlightedText.substring(0, match.start);
+                    const after = highlightedText.substring(match.end);
+                    highlightedText = before + `<mark class="hateful-word-highlight">${match.text}</mark>` + after;
+                }
+            });
+        });
+        
+        // Convert newlines to <br> tags for proper display
+        highlightedText = highlightedText.replace(/\n/g, '<br>');
+        
+        return highlightedText;
+    };
 
     return (
         <Theme system="express" scale="medium" color="light">
@@ -225,16 +298,20 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         <div className="section-title">
                             {activeTab === 'copyright' && 'Copyright'}
                             {activeTab === 'proofread' && 'Proofread'}
-                            {activeTab === 'legal' && 'Legal'}
+                            {activeTab === 'legal' && 'Auto-Disclaimer'}
                             {activeTab === 'menu' && 'Menu'}
                         </div>
 
                         {/* Proofread Content */}
                         {activeTab === 'proofread' && (
-                            <div className="proofread-content">
+                            <div className="proofread-content tab-content">
                                 {isProcessing && (
                                     <div className="processing-message">
-                                        🔍 Scanning document...
+                                        <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2"/>
+                                            <path d="m21 21-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                                        </svg>
+                                        <span>Scanning document...</span>
                                     </div>
                                 )}
 
@@ -263,12 +340,21 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                                     language detected.<br />
                                                     Please review your content.
                                                 </p>
-                                                <textarea 
+                                                <button
+                                                    className="scroll-down-button"
+                                                    onClick={() => {
+                                                        textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                    }}
+                                                    title="Scroll to content"
+                                                >
+                                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                        <path d="M12 5V19M12 19L19 12M12 19L5 12" stroke="#333333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                    </svg>
+                                                </button>
+                                                <div 
+                                                    ref={textareaRef as React.RefObject<HTMLDivElement>}
                                                     className="proofread-textarea"
-                                                    readOnly
-                                                    value={hatefulText}
-                                                    placeholder="Hateful content will appear here..."
-                                                    spellCheck={false}
+                                                    dangerouslySetInnerHTML={{ __html: getHighlightedText() }}
                                                 />
                                             </div>
                                         )}
@@ -290,9 +376,8 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
                         {/* Legal Tab - Auto Disclaimer */}
                         {activeTab === 'legal' && (
-                            <div className="auto-disclaimer-content">
+                            <div className="auto-disclaimer-content tab-content">
                                 <div className="disclaimer-header">
-                                    <h3 className="disclaimer-title">Auto - Disclaimer</h3>
                                     <button 
                                         className="copy-button"
                                         onClick={async () => {
@@ -351,7 +436,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
 
                         {/* Other Tabs Content Placeholder */}
                         {activeTab !== 'proofread' && activeTab !== 'legal' && (
-                            <div className="tab-placeholder">
+                            <div className="tab-placeholder tab-content">
                                 <p>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} section coming soon...</p>
                             </div>
                         )}
