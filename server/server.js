@@ -9,6 +9,7 @@ import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
 import Tesseract from "tesseract.js";
+import FormData from "form-data";
 
 // Setup for ES modules pathing
 const __filename = fileURLToPath(import.meta.url);
@@ -28,7 +29,7 @@ app.use(express.json());
 
 // 1. Point this to exactly where you put app.py
 // Based on your folder structure, it's likely one level up in 'model_service'
-const PYTHON_SCRIPT_PATH = path.join(__dirname, "../model_service/hatebert-final/app.py");
+const PYTHON_SCRIPT_PATH = path.join(__dirname, "../model_service/hatebert_final/app.py");
 const PYTHON_PORT = 5001; // The port defined in your app.py
 
 let pythonProcess = null;
@@ -124,6 +125,66 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
 
     } catch (error) {
         console.error("OCR Error:", error.message);
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
+// ✂️ ROUTE: CROP IMAGES
+// ==========================================
+app.post("/crop-images", upload.single("image"), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: "No image file uploaded" });
+
+        const image_positions = req.body.image_positions || '[]';
+        
+        console.log(`📸 Processing crop request for file: ${req.file.path}`);
+        console.log(`📍 Image positions: ${image_positions}`);
+
+        // Create FormData to forward to Python service
+        const formData = new FormData();
+        
+        // Read the file and append it
+        const fileStream = fs.createReadStream(req.file.path);
+        formData.append('image', fileStream, req.file.filename);
+        formData.append('image_positions', image_positions);
+
+        // Forward to Python Flask service
+        try {
+            const pythonResponse = await axios.post(
+                `http://127.0.0.1:${PYTHON_PORT}/crop-images`,
+                formData,
+                {
+                    headers: formData.getHeaders()
+                }
+            );
+            
+            // Clean up uploaded file
+            fs.unlinkSync(req.file.path);
+            
+            console.log("✅ Crop Response Received");
+            res.json(pythonResponse.data);
+
+        } catch (pyError) {
+            console.error("❌ Python Service Error:", pyError.message);
+            
+            // Clean up uploaded file
+            if (req.file && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+            
+            if (pyError.code === 'ECONNREFUSED') {
+                return res.status(503).json({
+                    error: "Python service is not available",
+                    details: "The Python service may not be running. Please ensure it's started."
+                });
+            }
+            res.status(500).json({ error: "Crop processing failed", details: pyError.message });
+        }
+
+    } catch (error) {
+        console.error("Crop Error:", error.message);
         if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: error.message });
     }

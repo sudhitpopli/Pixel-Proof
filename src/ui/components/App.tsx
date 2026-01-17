@@ -77,34 +77,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         };
     };
 
-    // --- GET IMAGE POSITIONS FUNCTION ---
-    const handleGetImagePositions = async () => {
-        try {
-            setError(null);
-            const result = await sandboxProxy.getAllImagePositions();
-            console.log("Image positions result:", result);
-            setImagePositions(result);
-            
-            if (result.success) {
-                console.log(`Found ${result.count} image(s) in the document:`);
-                result.images.forEach((img: any, index: number) => {
-                    console.log(`Image ${index + 1}:`, {
-                        id: img.id,
-                        position: `(${img.x}, ${img.y})`,
-                        size: `${img.width} x ${img.height}px`,
-                        type: img.type
-                    });
-                });
-            } else {
-                throw new Error(result.error || "Failed to get image positions");
-            }
-        } catch (err: any) {
-            console.error("Get image positions failed:", err);
-            setError(`Failed to get image positions: ${err.message}`);
-        }
-    };
-
-    // --- SCREENSHOT FUNCTION ---
+    // --- SCREENSHOT FUNCTION (with image positions) ---
     const handleScreenshot = async () => {
         try {
             if (!addOnUISdk.app.document.createRenditions) {
@@ -129,17 +102,66 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
             const filename = `screenshot-${timestamp}.png`;
 
-            // Automatically save to Downloads folder using browser download
-            const downloadUrl = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = downloadUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(downloadUrl);
+            console.log(`Screenshot captured: ${filename}`);
 
-            console.log(`Screenshot saved to Downloads folder: ${filename}`);
+            // Get image positions and crop directly from blob (no download needed)
+            try {
+                const result = await sandboxProxy.getAllImagePositions();
+                console.log("Image positions result:", result);
+                setImagePositions(result);
+                
+                if (result.success && result.images.length > 0) {
+                    console.log(`Found ${result.count} image(s) in the document:`);
+                    result.images.forEach((img: any, index: number) => {
+                        console.log(`Image ${index + 1}:`, {
+                            id: img.id,
+                            position: `(${img.x}, ${img.y})`,
+                            size: `${img.width} x ${img.height}px`,
+                            type: img.type
+                        });
+                    });
+
+                    // Upload screenshot blob directly for cropping (no download step)
+                    try {
+                        const formData = new FormData();
+                        formData.append("image", blob, filename);
+                        formData.append("image_positions", JSON.stringify(result.images));
+
+                        console.log("📸 Uploading screenshot for cropping...");
+                        const cropResponse = await fetch("http://localhost:3000/crop-images", {
+                            method: "POST",
+                            body: formData
+                        });
+
+                        if (cropResponse.ok) {
+                            const cropResult = await cropResponse.json();
+                            console.log("✅ Cropped images saved:", cropResult);
+                            console.log(`📁 Output directory: ${cropResult.output_directory}`);
+                            console.log(`✂️  Successfully cropped ${cropResult.cropped_count} of ${cropResult.total_images} image(s)`);
+                            
+                            // Log each cropped image path
+                            cropResult.results.forEach((crop: any, idx: number) => {
+                                if (crop.output_path) {
+                                    console.log(`  Image ${idx + 1}: ${crop.output_path}`);
+                                } else if (crop.error) {
+                                    console.warn(`  Image ${idx + 1} crop failed: ${crop.error}`);
+                                }
+                            });
+                        } else {
+                            const errorData = await cropResponse.json();
+                            console.warn("⚠️  Crop request failed:", errorData);
+                        }
+                    } catch (cropErr: any) {
+                        console.warn("⚠️  Failed to crop images:", cropErr);
+                        // Don't throw error here
+                    }
+                } else if (result.success && result.images.length === 0) {
+                    console.log("No images found in document, skipping crop operation");
+                }
+            } catch (imgErr: any) {
+                console.warn("Failed to get image positions:", imgErr);
+            }
+
             setError(null);
         } catch (err: any) {
             console.error("Screenshot failed:", err);
@@ -264,26 +286,13 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                     className="screenshot-button"
                                     onClick={handleScreenshot}
                                     disabled={isProcessing}
-                                    title="Take screenshot of current page"
+                                    title="Take screenshot and get image positions"
                                 >
                                     <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M3 9C3 7.89543 3.89543 7 5 7H5.92963C6.59834 7 7.2228 6.6658 7.59373 6.1094L8.40627 4.8906C8.7772 4.3342 9.40166 4 10.0704 4H14C15.1046 4 16 4.89543 16 6V7M3 9V18C3 19.1046 3.89543 20 5 20H19C20.1046 20 21 19.1046 21 18V9C21 7.89543 20.1046 7 19 7H5C3.89543 7 3 7.89543 3 9Z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                         <circle cx="12" cy="13" r="3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                     <span>Screenshot</span>
-                                </button>
-                                <button 
-                                    className="screenshot-button"
-                                    onClick={handleGetImagePositions}
-                                    disabled={isProcessing}
-                                    title="Get positions and sizes of all images"
-                                >
-                                    <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        <path d="M3 9H21" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        <path d="M9 21V9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                    <span>Get Images</span>
                                 </button>
                             </div>
                         </div>
