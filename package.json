@@ -28,6 +28,8 @@
         "imghash": "^1.0.0",
         "jspdf": "^2.5.1",
         "multer": "^2.0.2",
+        "pdf-parse": "^2.4.5",
+        "pdf-parser": "^1.0.5",
         "pdfjs-dist": "^4.0.379",
         "react": "18.2.0",
         "react-dom": "18.2.0",

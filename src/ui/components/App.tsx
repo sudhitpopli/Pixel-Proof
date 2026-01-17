@@ -32,14 +32,19 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
+    // Brand Compliance State
+    const [brandFile, setBrandFile] = useState<File | null>(null);
+    const [brandAnalysis, setBrandAnalysis] = useState<string | null>(null);
+    
     // Image Positions State
     const [imagePositions, setImagePositions] = useState<any>(null);
 
     // Navigation State
-    const [activeTab, setActiveTab] = useState<'copyright' | 'proofread' | 'legal' | 'menu'>('proofread');
+    const [activeTab, setActiveTab] = useState<'copyright' | 'proofread' | 'legal' | 'brand' | 'menu'>('proofread');
 
     // Disclaimer State
     const [disclaimerLanguage, setDisclaimerLanguage] = useState<string>("English");
+    const [disclaimerText, setDisclaimerText] = useState<string>("");
     
     // Disclaimer Templates by Language
     const disclaimerTemplates: Record<string, string> = {
@@ -49,9 +54,6 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         "German": "Die bereitgestellten Informationen dienen nur allgemeinen Informationszwecken. Alle Informationen werden nach bestem Wissen und Gewissen bereitgestellt, jedoch geben wir keine Zusicherungen oder Garantien jeglicher Art, weder ausdrücklich noch stillschweigend, bezüglich der Genauigkeit, Angemessenheit, Gültigkeit, Zuverlässigkeit, Verfügbarkeit oder Vollständigkeit der Informationen."
     };
 
-    const [disclaimerText, setDisclaimerText] = useState<string>(disclaimerTemplates["English"]);
-
-    // Update disclaimer text when language changes
     useEffect(() => {
         if (disclaimerTemplates[disclaimerLanguage]) {
             setDisclaimerText(disclaimerTemplates[disclaimerLanguage]);
@@ -62,114 +64,105 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const formatBackendResponse = (analysisData: any) => {
         const segments: AnalyzedSegment[] = analysisData.segments || [];
         let hateCount = 0;
-        
-        segments.forEach(seg => {
-            if (seg.is_hate) hateCount++;
-        });
-
+        segments.forEach(seg => { if (seg.is_hate) hateCount++; });
         return {
             success: true,
             segments: segments,
-            summary: {
-                hateSpeechCount: hateCount,
-                totalAnalyzed: segments.length
-            }
+            summary: { hateSpeechCount: hateCount, totalAnalyzed: segments.length }
         };
     };
 
-    // --- SCREENSHOT FUNCTION (with image positions) ---
-    const handleScreenshot = async () => {
-        try {
-            if (!addOnUISdk.app.document.createRenditions) {
-                throw new Error("Renditions API is not available");
-            }
+    // --- 1. BRAND COMPLIANCE FUNCTION ---
+    const handleBrandComplianceCheck = async () => {
+        if (!brandFile) {
+            setError("Please upload your Brand Guidelines PDF first.");
+            return;
+        }
 
-            // Create rendition of current page as PNG
+        console.log("🚀 Starting Brand Compliance Check...");
+        setIsProcessing(true);
+        setError(null);
+        setBrandAnalysis(null);
+
+        try {
+            // Step A: Capture Screenshot
+            if (!addOnUISdk.app.document.createRenditions) throw new Error("Renditions API not available");
             const renditionResults = await addOnUISdk.app.document.createRenditions(
                 { range: "currentPage", format: "image/png" },
                 addOnUISdk.constants.RenditionIntent.export
             );
-              console.log("Full results:", renditionResults);
-            if (!renditionResults?.[0]?.blob || renditionResults[0].blob.size === 0) {
-                throw new Error("Rendition failed: empty or invalid blob");
-            }
-            const blob = renditionResults[0].blob;
+            if (!renditionResults?.[0]?.blob) throw new Error("Failed to capture screenshot");
+            const screenshotBlob = renditionResults[0].blob;
 
-            // const blob = renditionResults[0].blob;
-            console.log("blob", blob);
+            // Step B: Prepare Data
+            const formData = new FormData();
+            formData.append("guidelines", brandFile);
+            formData.append("image", screenshotBlob, "design.png");
 
-            // Generate filename with timestamp
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const filename = `screenshot-${timestamp}.png`;
+            // Step C: Send to Server
+            const res = await fetch("http://localhost:3000/analyze-brand-compliance", {
+                method: "POST",
+                body: formData
+            });
 
-            console.log(`Screenshot captured: ${filename}`);
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            
+            console.log("✅ Brand Analysis Received");
+            setBrandAnalysis(data.analysis);
 
-            // Get image positions and crop directly from blob (no download needed)
-            try {
-                const result = await sandboxProxy.getAllImagePositions();
-                console.log("Image positions result:", result);
-                setImagePositions(result);
-                
-                if (result.success && result.images.length > 0) {
-                    console.log(`Found ${result.count} image(s) in the document:`);
-                    result.images.forEach((img: any, index: number) => {
-                        console.log(`Image ${index + 1}:`, {
-                            id: img.id,
-                            position: `(${img.x}, ${img.y})`,
-                            size: `${img.width} x ${img.height}px`,
-                            type: img.type
-                        });
-                    });
-
-                    // Upload screenshot blob directly for cropping (no download step)
-                    try {
-                        const formData = new FormData();
-                        formData.append("image", blob, filename);
-                        formData.append("image_positions", JSON.stringify(result.images));
-
-                        console.log("📸 Uploading screenshot for cropping...");
-                        const cropResponse = await fetch("http://localhost:3000/crop-images", {
-                            method: "POST",
-                            body: formData
-                        });
-
-                        if (cropResponse.ok) {
-                            const cropResult = await cropResponse.json();
-                            console.log("✅ Cropped images saved:", cropResult);
-                            console.log(`📁 Output directory: ${cropResult.output_directory}`);
-                            console.log(`✂️  Successfully cropped ${cropResult.cropped_count} of ${cropResult.total_images} image(s)`);
-                            
-                            // Log each cropped image path
-                            cropResult.results.forEach((crop: any, idx: number) => {
-                                if (crop.output_path) {
-                                    console.log(`  Image ${idx + 1}: ${crop.output_path}`);
-                                } else if (crop.error) {
-                                    console.warn(`  Image ${idx + 1} crop failed: ${crop.error}`);
-                                }
-                            });
-                        } else {
-                            const errorData = await cropResponse.json();
-                            console.warn("⚠️  Crop request failed:", errorData);
-                        }
-                    } catch (cropErr: any) {
-                        console.warn("⚠️  Failed to crop images:", cropErr);
-                        // Don't throw error here
-                    }
-                } else if (result.success && result.images.length === 0) {
-                    console.log("No images found in document, skipping crop operation");
-                }
-            } catch (imgErr: any) {
-                console.warn("Failed to get image positions:", imgErr);
-            }
-
-            setError(null);
         } catch (err: any) {
-            console.error("Screenshot failed:", err);
-            setError(`Screenshot failed: ${err.message}`);
+            console.error(err);
+            setError(err.message || "Brand analysis failed.");
+        } finally {
+            setIsProcessing(false);
         }
     };
 
-    // --- MAIN FUNCTION ---
+    // --- 2. SCREENSHOT / COPYRIGHT FUNCTION ---
+    const handleScreenshot = async () => {
+        try {
+            if (!addOnUISdk.app.document.createRenditions) throw new Error("Renditions API not available");
+            const renditionResults = await addOnUISdk.app.document.createRenditions(
+                { range: "currentPage", format: "image/png" },
+                addOnUISdk.constants.RenditionIntent.export
+            );
+            if (!renditionResults?.[0]?.blob) throw new Error("Rendition failed");
+            const blob = renditionResults[0].blob;
+            const filename = `screenshot-${Date.now()}.png`;
+
+            // Get image positions
+            try {
+                const result = await sandboxProxy.getAllImagePositions();
+                setImagePositions(result);
+                
+                if (result.success && result.images.length > 0) {
+                    console.log(`Found ${result.count} images. Uploading for crop...`);
+                    const formData = new FormData();
+                    formData.append("image", blob, filename);
+                    formData.append("image_positions", JSON.stringify(result.images));
+
+                    const cropResponse = await fetch("http://localhost:3000/crop-images", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    if (cropResponse.ok) {
+                        const cropResult = await cropResponse.json();
+                        console.log(`✅ Successfully cropped ${cropResult.cropped_count} images.`);
+                    }
+                } else {
+                    console.log("No images to crop.");
+                }
+            } catch (imgErr) { console.warn(imgErr); }
+            setError(null);
+        } catch (err: any) {
+            console.error(err);
+            setError(err.message);
+        }
+    };
+
+    // --- 3. PROOFREAD FUNCTION (OCR Only) ---
     const handleAdvanceSpellCheck = async () => {
         console.log("🚀 STARTING SCAN...");
         setIsProcessing(true);
@@ -179,16 +172,14 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         setRawDocText("");
 
         try {
-            // 1. OCR SCAN (From Image)
+            // STEP 1: OCR SCAN
             let ocrTxt = "";
             try {
                 if (addOnUISdk.app.document.createRenditions) {
                     const renditionResults = await addOnUISdk.app.document.createRenditions({ range: "currentPage", format: "image/png" });
                     const blob = renditionResults[0].blob;
-                    
                     const formData = new FormData();
                     formData.append("image", blob, "page.png");
-                    
                     const res = await fetch("http://localhost:3000/analyze-image", { method: "POST", body: formData });
                     if (res.ok) {
                         const data = await res.json();
@@ -196,28 +187,11 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         setRawOcrText(ocrTxt);
                     }
                 }
-            } catch (e) {
-                console.warn("OCR Skipped/Failed:", e);
-            }
+            } catch (e) { console.warn("OCR Failed:", e); }
 
-            // 2. DOCUMENT TEXT (From Sandbox)
-            let docTxt = "";
-            try {
-                const extractionResult = await sandboxProxy.extractText();
-                if (extractionResult.success) {
-                    docTxt = extractionResult.textElements.join(' ');
-                    setRawDocText(docTxt);
-                }
-            } catch (e) {
-                console.warn("Doc Text Extraction Failed:", e);
-            }
-
-            // 3. COMBINE & ANALYZE
-            const combinedText = `${ocrTxt}\n ${docTxt}`.trim();
-
-            if (!combinedText) {
-                throw new Error("No text found in either OCR or Document Layers.");
-            }
+            // STEP 2: ANALYZE (Using ONLY OCR Text to avoid duplicates)
+            const combinedText = ocrTxt.trim(); 
+            if (!combinedText) throw new Error("No text found in OCR layer.");
 
             const analysisRes = await fetch("http://localhost:3000/analyze-hate", {
                 method: "POST",
@@ -226,22 +200,17 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             });
 
             if (!analysisRes.ok) throw new Error(await analysisRes.text());
-            
             const analysisData = await analysisRes.json();
             const formatted = formatBackendResponse(analysisData);
             
-            // Filter hateful segments for underlining
-            const hatefulSegments = formatted.segments.filter((seg: AnalyzedSegment) => seg.is_hate);
-            
-            // Call underline function in sandbox
+            // Underline Logic
             try {
-                await sandboxProxy.underlineHatefulWords(hatefulSegments);
-            } catch (e) {
-                console.warn("Failed to underline hateful words:", e);
-            }
+                const hatefulSegments = formatted.segments.filter((seg: AnalyzedSegment) => seg.is_hate);
+                if (sandboxProxy.underlineHatefulWords) await sandboxProxy.underlineHatefulWords(hatefulSegments);
+            } catch (e) { console.warn("Underline failed:", e); }
             
             setMlResults(formatted);
-            setActiveTab('proofread'); // Switch to proofread tab
+            setActiveTab('proofread');
 
         } catch (err: any) {
             console.error(err);
@@ -251,217 +220,139 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
-    // Get hateful text for display
     const hatefulText = mlResults 
-        ? mlResults.segments
-            .filter((seg: AnalyzedSegment) => seg.is_hate)
-            .map((seg: AnalyzedSegment) => seg.text)
-            .join('\n')
+        ? mlResults.segments.filter((seg: AnalyzedSegment) => seg.is_hate).map((seg: AnalyzedSegment) => seg.text).join('\n')
         : '';
 
     return (
         <Theme system="express" scale="medium" color="light">
             <div className="pocket-legal-container">
                 <div className="pocket-legal-content">
-                    {/* Header Section */}
                     <div className="pocket-legal-header">
                         <div className="header-left">
                             <div className="logo-placeholder"></div>
                             <h1 className="app-title">Pocket Legal</h1>
                         </div>
-                        
-                        <div className="header-bottom">
-                            <div className="header-buttons">
-                                <button 
-                                    className="refresh-button"
-                                    onClick={handleAdvanceSpellCheck} 
-                                    disabled={isProcessing}
-                                >
-                                    <svg className="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M20 11C19.7554 9.24021 18.9391 7.60966 17.6766 6.35949C16.4142 5.10933 14.7758 4.30891 13.0137 4.08155C11.2516 3.85418 9.46362 4.21248 7.9252 5.10124C6.38678 5.99001 5.18325 7.35993 4.5 9M4 5V9H8M4 13C4.24456 14.7598 5.06093 16.3903 6.32336 17.6405C7.58579 18.8907 9.22424 19.6911 10.9863 19.9184C12.7484 20.1458 14.5364 19.7875 16.0748 18.8988C17.6132 18.01 18.8168 16.6401 19.5 15M20 19V15H16" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                    <span>Refresh</span>
-                                </button>
-                                <button 
-                                    className="screenshot-button"
-                                    onClick={handleScreenshot}
-                                    disabled={isProcessing}
-                                    title="Take screenshot and get image positions"
-                                >
-                                    <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M3 9C3 7.89543 3.89543 7 5 7H5.92963C6.59834 7 7.2228 6.6658 7.59373 6.1094L8.40627 4.8906C8.7772 4.3342 9.40166 4 10.0704 4H14C15.1046 4 16 4.89543 16 6V7M3 9V18C3 19.1046 3.89543 20 5 20H19C20.1046 20 21 19.1046 21 18V9C21 7.89543 20.1046 7 19 7H5C3.89543 7 3 7.89543 3 9Z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        <circle cx="12" cy="13" r="3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                    <span>Screenshot</span>
-                                </button>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Navigation Bar */}
                     <div className="pocket-legal-nav-wrapper">
                         <div className="pocket-legal-nav">
-                            <button 
-                                className={`nav-icon ${activeTab === 'copyright' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('copyright')}
-                            >
+                            <button className={`nav-icon ${activeTab === 'copyright' ? 'active' : ''}`} onClick={() => setActiveTab('copyright')}>
                                 <img src={copyrightIcon} alt="Copyright" />
                             </button>
-                            <button 
-                                className={`nav-icon ${activeTab === 'proofread' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('proofread')}
-                            >
+                            <button className={`nav-icon ${activeTab === 'proofread' ? 'active' : ''}`} onClick={() => setActiveTab('proofread')}>
                                 <img src={proofreadIcon} alt="Proofread" />
                             </button>
-                            <button 
-                                className={`nav-icon ${activeTab === 'legal' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('legal')}
-                            >
+                            <button className={`nav-icon ${activeTab === 'legal' ? 'active' : ''}`} onClick={() => setActiveTab('legal')}>
                                 <img src={legalIcon} alt="Legal" />
                             </button>
-                            <button 
-                                className={`nav-icon ${activeTab === 'menu' ? 'active' : ''}`}
-                                onClick={() => setActiveTab('menu')}
-                            >
+                            <button className={`nav-icon ${activeTab === 'brand' ? 'active' : ''}`} onClick={() => setActiveTab('brand')} title="Brand Safety">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 15L8.5 11.5M12 15L15.5 11.5M12 15V3M21 15V19C21 20.1046 20.1046 21 19 21H5C3.89543 21 3 20.1046 3 19V15" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </button>
+                            <button className={`nav-icon ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}>
                                 <img src={menuIcon} alt="Menu" />
                             </button>
                         </div>
                     </div>
 
-                    {/* Content Section */}
                     <div className="pocket-legal-section">
-                        {/* Tab Title */}
                         <div className="section-title">
                             {activeTab === 'copyright' && 'Copyright'}
                             {activeTab === 'proofread' && 'Proofread'}
                             {activeTab === 'legal' && 'Legal'}
+                            {activeTab === 'brand' && 'Brand Safety'}
                             {activeTab === 'menu' && 'Menu'}
                         </div>
 
-                        {/* Proofread Content */}
-                        {activeTab === 'proofread' && (
-                            <div className="proofread-content">
-                                {isProcessing && (
-                                    <div className="processing-message">
-                                        🔍 Scanning document...
-                                    </div>
-                                )}
-
+                        {/* BRAND SAFETY TAB */}
+                        {activeTab === 'brand' && (
+                            <div className="brand-content">
+                                <div className="brand-upload-section">
+                                    <p className="instruction-text">Upload Brand Guidelines (PDF) to check compliance.</p>
+                                    <input 
+                                        type="file" 
+                                        accept="application/pdf"
+                                        className="file-input"
+                                        onChange={(e) => setBrandFile(e.target.files ? e.target.files[0] : null)}
+                                    />
+                                    {brandFile && <p className="file-name">📄 {brandFile.name}</p>}
+                                    <button 
+                                        className="refresh-button"
+                                        onClick={handleBrandComplianceCheck}
+                                        disabled={isProcessing || !brandFile}
+                                        style={{width: '100%', marginTop: '15px'}}
+                                    >
+                                        {isProcessing ? "Analyzing..." : "🔍 Check Compliance"}
+                                    </button>
+                                </div>
                                 {error && <div className="error-message">{error}</div>}
-
-                                {!isProcessing && mlResults && (
-                                    <>
-                                        {mlResults.summary.hateSpeechCount === 0 ? (
-                                            // Clean State
-                                            <div className="status-container clean">
-                                                <div className="status-icon clean">
-                                                    <img src={checkIcon} alt="Clean" className="check-icon" />
-                                                </div>
-                                                <p className="status-message clean">
-                                                    No hate speech or offensive language detected. Your content is clean and you are good to go!
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            // Issues Found State
-                                            <div className="status-container issues">
-                                                <div className="status-icon issues">
-                                                    <img src={cancelIcon} alt="Cancel" className="cancel-icon" />
-                                                </div>
-                                                <p className="status-message issues">
-                                                    Hate speech or offensive<br />
-                                                    language detected.<br />
-                                                    Please review your content.
-                                                </p>
-                                                <textarea 
-                                                    className="proofread-textarea"
-                                                    readOnly
-                                                    value={hatefulText}
-                                                    placeholder="Hateful content will appear here..."
-                                                    spellCheck={false}
-                                                />
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-
-                                {!isProcessing && !mlResults && !error && (
-                                    <div className="status-container clean">
-                                        <div className="status-icon clean">
-                                            <img src={checkIcon} alt="Clean" className="check-icon" />
+                                {brandAnalysis && (
+                                    <div className="analysis-result">
+                                        <h3>Report</h3>
+                                        <div className="analysis-text">
+                                            {brandAnalysis.split('\n').map((line, i) => <p key={i}>{line}</p>)}
                                         </div>
-                                        <p className="status-message clean">
-                                            Click Refresh to scan your document for hate speech and offensive language.
-                                        </p>
                                     </div>
                                 )}
                             </div>
                         )}
 
-                        {/* Legal Tab - Auto Disclaimer */}
+                        {/* PROOFREAD TAB */}
+                        {activeTab === 'proofread' && (
+                            <div className="proofread-content">
+                                {isProcessing && <div className="processing-message">🔍 Scanning document...</div>}
+                                {error && <div className="error-message">{error}</div>}
+                                {!isProcessing && mlResults && (
+                                    mlResults.summary.hateSpeechCount === 0 ? (
+                                        <div className="status-container clean">
+                                            <div className="status-icon clean"><img src={checkIcon} alt="Clean" className="check-icon" /></div>
+                                            <p className="status-message clean">No hate speech detected!</p>
+                                        </div>
+                                    ) : (
+                                        <div className="status-container issues">
+                                            <div className="status-icon issues"><img src={cancelIcon} alt="Cancel" className="cancel-icon" /></div>
+                                            <p className="status-message issues">Issues Found. Please review.</p>
+                                            <textarea className="proofread-textarea" readOnly value={hatefulText} spellCheck={false} />
+                                        </div>
+                                    )
+                                )}
+                                {!isProcessing && !mlResults && !error && (
+                                    <div className="status-container clean">
+                                        <p className="status-message clean">Click Refresh to scan your document.</p>
+                                        <button className="refresh-button" onClick={handleAdvanceSpellCheck}>Refresh</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* COPYRIGHT TAB */}
+                        {activeTab === 'copyright' && (
+                            <div className="copyright-content" style={{textAlign: 'center', paddingTop: '20px'}}>
+                                <button className="screenshot-button" onClick={handleScreenshot} disabled={isProcessing} style={{width: '100%'}}>
+                                    📸 Scan for Logos (Crop)
+                                </button>
+                                <p style={{marginTop: '15px', color: '#666', fontSize: '13px'}}>Scans canvas for images and checks for logos.</p>
+                            </div>
+                        )}
+
+                        {/* LEGAL TAB */}
                         {activeTab === 'legal' && (
                             <div className="auto-disclaimer-content">
                                 <div className="disclaimer-header">
                                     <h3 className="disclaimer-title">Auto - Disclaimer</h3>
-                                    <button 
-                                        className="copy-button"
-                                        onClick={async () => {
-                                            try {
-                                                await navigator.clipboard.writeText(disclaimerText);
-                                                // Visual feedback - you could add a toast notification here
-                                                console.log("Disclaimer copied to clipboard");
-                                            } catch (err) {
-                                                console.error("Failed to copy:", err);
-                                                // Fallback for older browsers
-                                                const textArea = document.createElement("textarea");
-                                                textArea.value = disclaimerText;
-                                                textArea.style.position = "fixed";
-                                                textArea.style.left = "-999999px";
-                                                document.body.appendChild(textArea);
-                                                textArea.focus();
-                                                textArea.select();
-                                                try {
-                                                    document.execCommand('copy');
-                                                    console.log("Disclaimer copied to clipboard (fallback)");
-                                                } catch (fallbackErr) {
-                                                    console.error("Fallback copy failed:", fallbackErr);
-                                                }
-                                                document.body.removeChild(textArea);
-                                            }
-                                        }}
-                                        title="Copy to clipboard"
-                                    >
+                                    <button className="copy-button" onClick={() => navigator.clipboard.writeText(disclaimerText)}>
                                         <img src={copyIcon} alt="Copy" className="copy-icon" />
                                     </button>
                                 </div>
                                 <div className="disclaimer-language-selector">
-                                    <label htmlFor="disclaimer-language" className="language-label">Language:</label>
-                                    <select
-                                        id="disclaimer-language"
-                                        className="language-dropdown"
-                                        value={disclaimerLanguage}
-                                        onChange={(e) => setDisclaimerLanguage(e.target.value)}
-                                    >
-                                        {Object.keys(disclaimerTemplates).map((lang) => (
-                                            <option key={lang} value={lang}>
-                                                {lang}
-                                            </option>
-                                        ))}
+                                    <label className="language-label">Language:</label>
+                                    <select className="language-dropdown" value={disclaimerLanguage} onChange={(e) => setDisclaimerLanguage(e.target.value)}>
+                                        {Object.keys(disclaimerTemplates).map(lang => <option key={lang} value={lang}>{lang}</option>)}
                                     </select>
                                 </div>
-                                <textarea
-                                    className="disclaimer-textarea"
-                                    value={disclaimerText}
-                                    onChange={(e) => setDisclaimerText(e.target.value)}
-                                    placeholder="Enter your disclaimer text here..."
-                                    spellCheck={false}
-                                />
-                            </div>
-                        )}
-
-                        {/* Other Tabs Content Placeholder */}
-                        {activeTab !== 'proofread' && activeTab !== 'legal' && (
-                            <div className="tab-placeholder">
-                                <p>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} section coming soon...</p>
+                                <textarea className="disclaimer-textarea" value={disclaimerText} readOnly />
                             </div>
                         )}
                     </div>
