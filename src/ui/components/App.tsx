@@ -31,6 +31,9 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     const [mlResults, setMlResults] = useState<any>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    
+    // Image Positions State
+    const [imagePositions, setImagePositions] = useState<any>(null);
 
     // Navigation State
     const [activeTab, setActiveTab] = useState<'copyright' | 'proofread' | 'legal' | 'menu'>('proofread');
@@ -74,6 +77,33 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         };
     };
 
+    // --- GET IMAGE POSITIONS FUNCTION ---
+    const handleGetImagePositions = async () => {
+        try {
+            setError(null);
+            const result = await sandboxProxy.getAllImagePositions();
+            console.log("Image positions result:", result);
+            setImagePositions(result);
+            
+            if (result.success) {
+                console.log(`Found ${result.count} image(s) in the document:`);
+                result.images.forEach((img: any, index: number) => {
+                    console.log(`Image ${index + 1}:`, {
+                        id: img.id,
+                        position: `(${img.x}, ${img.y})`,
+                        size: `${img.width} x ${img.height}px`,
+                        type: img.type
+                    });
+                });
+            } else {
+                throw new Error(result.error || "Failed to get image positions");
+            }
+        } catch (err: any) {
+            console.error("Get image positions failed:", err);
+            setError(`Failed to get image positions: ${err.message}`);
+        }
+    };
+
     // --- SCREENSHOT FUNCTION ---
     const handleScreenshot = async () => {
         try {
@@ -99,85 +129,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
             const filename = `screenshot-${timestamp}.png`;
 
-            // Try to use File System Access API - prefer folder picker, fallback to save file picker
-            if ('showDirectoryPicker' in window || 'showSaveFilePicker' in window) {
-                try {
-                    let dirHandle: any = null;
-                    let fileHandle: any = null;
-
-                    // First, try folder picker (allows user to choose folder)
-                    if ('showDirectoryPicker' in window) {
-                        try {
-                            // @ts-ignore - File System Access API
-                            dirHandle = await window.showDirectoryPicker();
-                            
-                            // Create file in the selected directory
-                            fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-                            
-                            const writable = await fileHandle.createWritable();
-                            await writable.write(blob);
-                            await writable.close();
-                            
-                            // Try to show the folder name
-                            const folderName = dirHandle.name || 'selected folder';
-                            console.log(`Screenshot saved: ${folderName}/${filename}`);
-                            setError(null);
-                            return;
-                        } catch (dirErr: any) {
-                            // User cancelled folder picker, try save file picker instead
-                            if (dirErr.name !== 'AbortError') {
-                                console.warn("Folder picker failed, trying save file picker:", dirErr);
-                            } else {
-                                // User cancelled
-                                console.log("Screenshot save cancelled");
-                                return;
-                            }
-                        }
-                    }
-
-                    // Fallback: Use save file picker (lets user choose folder and filename)
-                    if (!fileHandle && 'showSaveFilePicker' in window) {
-                        // @ts-ignore - File System Access API
-                        fileHandle = await window.showSaveFilePicker({
-                            suggestedName: filename,
-                            types: [{
-                                description: 'PNG Image',
-                                accept: { 'image/png': ['.png'] }
-                            }]
-                        });
-
-                        const writable = await fileHandle.createWritable();
-                        await writable.write(blob);
-                        await writable.close();
-
-                        // Try to get directory info
-                        try {
-                            // @ts-ignore
-                            const parentDirHandle = await fileHandle.getParent?.();
-                            if (parentDirHandle && parentDirHandle.name) {
-                                console.log(`Screenshot saved to: ${parentDirHandle.name}/${fileHandle.name}`);
-                            } else {
-                                console.log(`Screenshot saved: ${fileHandle.name}`);
-                            }
-                        } catch (e) {
-                            console.log(`Screenshot saved: ${fileHandle.name}`);
-                        }
-                        
-                        setError(null);
-                        return;
-                    }
-                } catch (err: any) {
-                    // User cancelled the save dialog, just return
-                    if (err.name === 'AbortError') {
-                        console.log("Screenshot save cancelled");
-                        return;
-                    }
-                    // If File System Access API fails, fall back to download method
-                    console.warn("File System Access API failed, falling back to download:", err);
-                }
-            }
-
-            // Fallback: Use browser download (standard method)
+            // Automatically save to Downloads folder using browser download
             const downloadUrl = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
@@ -187,29 +139,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             document.body.removeChild(a);
             URL.revokeObjectURL(downloadUrl);
 
-            // Note: Browser download path is in the default Downloads folder
-            // Common locations:
-            // Linux: ~/Downloads/
-            // Windows: C:\Users\<username>\Downloads\
-            // macOS: ~/Downloads/
-            const osType = navigator.platform.toLowerCase();
-            let defaultPath = "your browser's default Downloads folder";
-            if (osType.includes('linux')) {
-                defaultPath = `~/Downloads/${filename}`;
-            } else if (osType.includes('win')) {
-                defaultPath = `C:\\Users\\<YourUsername>\\Downloads\\${filename}`;
-            } else if (osType.includes('mac')) {
-                defaultPath = `~/Downloads/${filename}`;
-            }
-
-            // Note: JavaScript cannot determine the actual download path due to browser security.
-            // The file is saved to your browser's configured download folder.
-            // Check your browser's downloads folder or use the browser's download manager to see the exact location.
-            console.log(`Screenshot saved: ${filename}`);
-            console.log(`⚠️  Note: Check your browser's download folder for the actual location.`);
-            console.log(`   Common locations:`);
-            console.log(`   - Linux: ~/Downloads/ or check browser settings`);
-            console.log(`   - Check browser's download history/manager to see exact path`);
+            console.log(`Screenshot saved to Downloads folder: ${filename}`);
             setError(null);
         } catch (err: any) {
             console.error("Screenshot failed:", err);
@@ -341,6 +271,19 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                         <circle cx="12" cy="13" r="3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                     <span>Screenshot</span>
+                                </button>
+                                <button 
+                                    className="screenshot-button"
+                                    onClick={handleGetImagePositions}
+                                    disabled={isProcessing}
+                                    title="Get positions and sizes of all images"
+                                >
+                                    <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M3 9H21" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M9 21V9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    <span>Get Images</span>
                                 </button>
                             </div>
                         </div>

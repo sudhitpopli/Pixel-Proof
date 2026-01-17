@@ -281,6 +281,90 @@ function getSelectionDetails() {
     };
 }
 
+/**
+ * Get position and size of all images in the document
+ */
+async function getAllImagePositions() {
+    try {
+        const images: Array<{
+            id: string;
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            type: string;
+            pageId?: string;
+            artboardId?: string;
+        }> = [];
+        
+        const doc = editor.documentRoot;
+        
+        for (const page of doc.pages) {
+            for (const artboard of page.artboards) {
+                const children = Array.from(artboard.allChildren);
+                
+                for (const node of children) {
+                    // Check for image types (MediaContainer is the main image type in Adobe Express)
+                    if (node.type === "MediaContainer") {
+                        try {
+                            const imageNode = node as any;
+                            
+                            // Get position
+                            let x = imageNode.translation?.x ?? 0;
+                            let y = imageNode.translation?.y ?? 0;
+                            
+                            // Get size - try multiple methods
+                            let width = imageNode.width;
+                            let height = imageNode.height;
+                            
+                            // Check mediaRectangle (Common for images/containers)
+                            if ((typeof width !== 'number' || typeof height !== 'number') && imageNode.mediaRectangle) {
+                                width = imageNode.mediaRectangle.width;
+                                height = imageNode.mediaRectangle.height;
+                            }
+                            
+                            // Check local bounds (Fallback)
+                            if ((typeof width !== 'number' || typeof height !== 'number') && imageNode.bounds?.local) {
+                                width = imageNode.bounds.local.width;
+                                height = imageNode.bounds.local.height;
+                            }
+                            
+                            // Only add if we have valid dimensions
+                            if (typeof width === 'number' && typeof height === 'number') {
+                                images.push({
+                                    id: imageNode.id,
+                                    x: x,
+                                    y: y,
+                                    width: width,
+                                    height: height,
+                                    type: imageNode.type,
+                                    pageId: page.id,
+                                    artboardId: artboard.id
+                                });
+                            }
+                        } catch (error) {
+                            console.error(`Error extracting image data for node ${node.id}:`, error);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return {
+            success: true,
+            images: images,
+            count: images.length
+        };
+    } catch (error) {
+        return {
+            success: false,
+            images: [],
+            count: 0,
+            error: String(error)
+        };
+    }
+}
+
 // =========================================================================
 // EXPOSE API BLOCK
 // =========================================================================
@@ -306,7 +390,8 @@ addOnSandboxSdk.instance.runtime.exposeApi({
 
     // NEWLY ADDED FUNCTIONS
     createDisclaimerText, 
-    getSelectionDetails   
+    getSelectionDetails,
+    getAllImagePositions
 });
 
 console.log("Sandbox API initialized - All services ready");
