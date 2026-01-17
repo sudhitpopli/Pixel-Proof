@@ -571,7 +571,6 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                     {/* Header Section */}
                     <div className="pocket-legal-header">
                         <div className="header-left">
-                            <div className="logo-placeholder"></div>
                             <h1 className="app-title">Pocket Legal</h1>
                         </div>
 
@@ -668,14 +667,14 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                                                     Please review your content.
                                                 </p>
                                                 <button
-                                                    className="scroll-down-button"
+                                                    className="scroll-down-arrow"
                                                     onClick={() => {
                                                         textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                                     }}
-                                                    title="Scroll to content"
+                                                    title="Scroll to hateful text"
                                                 >
                                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                        <path d="M12 5V19M12 19L19 12M12 19L5 12" stroke="#333333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                        <path d="M7 10L12 15L17 10" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                                     </svg>
                                                 </button>
                                                 <div 

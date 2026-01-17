@@ -392,6 +392,16 @@
   transform: translateY(3px);
 }
 
+.scroll-down-arrow svg {
+  width: 24px;
+  height: 24px;
+}
+
+.scroll-down-arrow svg path {
+  stroke: #000000;
+}
+
+
 @keyframes bounce {
   0%, 20%, 50%, 80%, 100% {
     transform: translateY(0);
