@@ -101,7 +101,7 @@ app.post("/analyze-hate", async (req, res) => {
                     Strict Compliance Guidelines:
                     1. **Unsubstantiated Claims**: Remove any implicit complaints that lack evidence. Convert them into objective observations or constructive questions.
                     2. **Gender Bias**: Eliminate any gendered stereotypes or bias. Use inclusive, neutral language.
-                    3. **Cultural Sensitivity**: Check for and correct cultural misconceptions or taboos (e.g., references that might be offensive in specific cultures, like number symbolism or stereotypes).
+                    3. **Cultural Sensitivity**: Check for and correct cultural misconceptions or taboos (e.g., references that might be offensive in specific cultures, like number symbolism, color meanings, or stereotypes).
                     4. **De-escalation**: Remove personal attacks and hate speech entirely.
                     
                     Output ONLY the replacement text.

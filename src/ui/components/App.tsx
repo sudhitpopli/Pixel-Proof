@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Theme } from "@swc-react/theme";
-import { Button } from "@swc-react/button";
+import copyrightIcon from "../../Assets/Vector.svg";
+import proofreadIcon from "../../Assets/Vector-1.svg";
+import legalIcon from "../../Assets/Vector-2.svg";
+import menuIcon from "../../Assets/Vector-3.svg";
+import checkIcon from "../../Assets/icon-park-solid_correct.svg";
+import cancelIcon from "../../Assets/flat-color-icons_cancel.svg";
+import copyIcon from "../../Assets/solar_copy-bold.svg";
 import "./App.css";
 
 // INTERFACES
@@ -16,164 +22,132 @@ interface AppProps {
     sandboxProxy: any;
 }
 
-// ==========================================
-// DISCLAIMER TEMPLATES
-// ==========================================
-const DISCLAIMER_TEMPLATES: Record<string, Record<string, string>> = {
-    "English": {
-        "General": "The information provided is for general informational purposes only. All information is provided in good faith, however we make no representation or warranty of any kind.",
-        "Financial": "This content is for informational purposes only and should not be construed as financial advice. Please consult with a professional financial advisor.",
-        "Health": "The content is not intended to be a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician.",
-        "Copyright": "© 2024 All Rights Reserved. Unauthorized use and/or duplication of this material without express and written permission is strictly prohibited."
-    },
-    "Spanish": {
-        "General": "La información proporcionada es solo para fines informativos generales. Toda la información se proporciona de buena fe, sin embargo, no hacemos ninguna representación o garantía.",
-        "Financial": "Este contenido es solo para fines informativos y no debe interpretarse como asesoramiento financiero. Consulte con un asesor financiero profesional.",
-        "Health": "El contenido no pretende sustituir el consejo, diagnóstico o tratamiento médico profesional. Busque siempre el consejo de su médico.",
-        "Copyright": "© 2024 Todos los derechos reservados. Queda estrictamente prohibido el uso no autorizado y/o la duplicación de este material sin permiso expreso."
-    },
-    "French": {
-        "General": "Les informations fournies sont uniquement à titre informatif. Toutes les informations sont fournies de bonne foi, toutefois nous ne faisons aucune déclaration ou garantie.",
-        "Financial": "Ce contenu est à titre informatif uniquement et ne doit pas être interprété comme un conseil financier. Veuillez consulter un conseiller financier professionnel.",
-        "Health": "Le contenu n'est pas destiné à se substituer à un avis médical professionnel, un diagnostic ou un traitement. Demandez toujours l'avis de votre médecin.",
-        "Copyright": "© 2024 Tous droits réservés. L'utilisation non autorisée et/ou la duplication de ce matériel sans autorisation expresse est strictement interdite."
-    },
-    "German": {
-        "General": "Die bereitgestellten Informationen dienen nur allgemeinen Informationszwecken. Alle Informationen werden nach bestem Wissen und Gewissen bereitgestellt, jedoch ohne Gewähr.",
-        "Financial": "Dieser Inhalt dient nur zu Informationszwecken und sollte nicht als Finanzberatung ausgelegt werden. Bitte konsultieren Sie einen professionellen Finanzberater.",
-        "Health": "Der Inhalt ist kein Ersatz für professionelle medizinische Beratung, Diagnose oder Behandlung. Suchen Sie immer den Rat Ihres Arztes.",
-        "Copyright": "© 2024 Alle Rechte vorbehalten. Die unerlaubte Verwendung und/oder Vervielfältigung dieses Materials ohne ausdrückliche Genehmigung ist strengstens untersagt."
-    }
-};
-
 const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
     // --- STATE ---
     const [rawOcrText, setRawOcrText] = useState<string>("");
     const [rawDocText, setRawDocText] = useState<string>("");
+    
+    // Analysis State
     const [mlResults, setMlResults] = useState<any>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'analysis' | 'raw'>('analysis');
+    
+    // Image Positions State
+    const [imagePositions, setImagePositions] = useState<any>(null);
+
+    // Navigation State
+    const [activeTab, setActiveTab] = useState<'copyright' | 'proofread' | 'legal' | 'menu'>('proofread');
 
     // Disclaimer State
-    const [discLang, setDiscLang] = useState<string>("English");
-    const [discType, setDiscType] = useState<string>("General");
-    const [discText, setDiscText] = useState<string>(DISCLAIMER_TEMPLATES["English"]["General"]);
-
-    // Save Image State
-    const [isSavingImage, setIsSavingImage] = useState(false);
-    const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-
-    // Update text when language or type changes
-    useEffect(() => {
-        if (DISCLAIMER_TEMPLATES[discLang] && DISCLAIMER_TEMPLATES[discLang][discType]) {
-            setDiscText(DISCLAIMER_TEMPLATES[discLang][discType]);
-        }
-    }, [discLang, discType]);
-
-    // --- HANDLERS ---
+    const [disclaimerLanguage, setDisclaimerLanguage] = useState<string>("English");
     
-    // 1. Insert Disclaimer
-    const handleInsertDisclaimer = async () => {
-        try {
-            await sandboxProxy.createDisclaimerText(discText);
-        } catch (err: any) {
-            console.error("Failed to insert text:", err);
-            setError("Failed to insert text into document.");
-        }
+    // Disclaimer Templates by Language
+    const disclaimerTemplates: Record<string, string> = {
+        "English": "The information provided is for general informational purposes only. All information is provided in good faith, however we make no representation or warranty of any kind, express or implied, regarding the accuracy, adequacy, validity, reliability, availability or completeness of any information.",
+        "Spanish": "La información proporcionada es solo para fines informativos generales. Toda la información se proporciona de buena fe, sin embargo, no hacemos ninguna representación o garantía de ningún tipo, expresa o implícita, con respecto a la precisión, adecuación, validez, confiabilidad, disponibilidad o integridad de cualquier información.",
+        "French": "Les informations fournies sont uniquement à titre informatif. Toutes les informations sont fournies de bonne foi, cependant nous ne faisons aucune déclaration ou garantie d'aucune sorte, expresse ou implicite, concernant l'exactitude, l'adéquation, la validité, la fiabilité, la disponibilité ou l'exhaustivité de toute information.",
+        "German": "Die bereitgestellten Informationen dienen nur allgemeinen Informationszwecken. Alle Informationen werden nach bestem Wissen und Gewissen bereitgestellt, jedoch geben wir keine Zusicherungen oder Garantien jeglicher Art, weder ausdrücklich noch stillschweigend, bezüglich der Genauigkeit, Angemessenheit, Gültigkeit, Zuverlässigkeit, Verfügbarkeit oder Vollständigkeit der Informationen."
     };
 
-    // 2. Save Selected Image
-    const handleSaveSelectedImage = async () => {
-        setIsSavingImage(true);
-        setError(null);
-        setDownloadUrl(null);
+    const [disclaimerText, setDisclaimerText] = useState<string>(disclaimerTemplates["English"]);
 
-        try {
-            // STEP A: Get Selection Coordinates
-            let selection;
-            try {
-                selection = await sandboxProxy.getSelectionDetails();
-            } catch (err: any) {
-                throw new Error(err.message || "Failed to get selection.");
-            }
-
-            console.log(`Targeting Selection: ${selection.type} at (${selection.x}, ${selection.y})`);
-
-            // STEP B: Export Page
-            if (!addOnUISdk.app.document.createRenditions) {
-                throw new Error("createRenditions API not supported.");
-            }
-
-            const renditionResults = await addOnUISdk.app.document.createRenditions({
-                range: "currentPage",
-                format: "image/png"
-            });
-
-            if (!renditionResults || renditionResults.length === 0) {
-                throw new Error("Failed to render page.");
-            }
-
-            // STEP C: Crop
-            const pageBlob = renditionResults[0].blob;
-            const pageUrl = URL.createObjectURL(pageBlob);
-
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = selection.width;
-                canvas.height = selection.height;
-                const ctx = canvas.getContext('2d');
-
-                if (ctx) {
-                    ctx.drawImage(
-                        img, 
-                        selection.x, selection.y, selection.width, selection.height, 
-                        0, 0, selection.width, selection.height
-                    );
-
-                    canvas.toBlob((blob) => {
-                        if (!blob) {
-                            setError("Failed to process image crop.");
-                            return;
-                        }
-                        
-                        const finalUrl = URL.createObjectURL(blob);
-                        setDownloadUrl(finalUrl);
-                        
-                        URL.revokeObjectURL(pageUrl);
-                        setIsSavingImage(false);
-                        console.log("Image processed. Ready for download.");
-                    }, 'image/png');
-                }
-            };
-            
-            img.onerror = () => {
-                setError("Failed to load page image.");
-                setIsSavingImage(false);
-            };
-            
-            img.src = pageUrl;
-
-        } catch (err: any) {
-            console.error("Save Image Error:", err);
-            setError(err.message);
-            setIsSavingImage(false);
+    // Update disclaimer text when language changes
+    useEffect(() => {
+        if (disclaimerTemplates[disclaimerLanguage]) {
+            setDisclaimerText(disclaimerTemplates[disclaimerLanguage]);
         }
-    };
+    }, [disclaimerLanguage]);
 
-    // 3. Advance Spell Check
+    // --- HELPER: FORMATTING ---
     const formatBackendResponse = (analysisData: any) => {
         const segments: AnalyzedSegment[] = analysisData.segments || [];
         let hateCount = 0;
-        segments.forEach(seg => { if (seg.is_hate) hateCount++; });
+        
+        segments.forEach(seg => {
+            if (seg.is_hate) hateCount++;
+        });
+
         return {
             success: true,
             segments: segments,
-            summary: { hateSpeechCount: hateCount, totalAnalyzed: segments.length }
+            summary: {
+                hateSpeechCount: hateCount,
+                totalAnalyzed: segments.length
+            }
         };
     };
 
+    // --- GET IMAGE POSITIONS FUNCTION ---
+    const handleGetImagePositions = async () => {
+        try {
+            setError(null);
+            const result = await sandboxProxy.getAllImagePositions();
+            console.log("Image positions result:", result);
+            setImagePositions(result);
+            
+            if (result.success) {
+                console.log(`Found ${result.count} image(s) in the document:`);
+                result.images.forEach((img: any, index: number) => {
+                    console.log(`Image ${index + 1}:`, {
+                        id: img.id,
+                        position: `(${img.x}, ${img.y})`,
+                        size: `${img.width} x ${img.height}px`,
+                        type: img.type
+                    });
+                });
+            } else {
+                throw new Error(result.error || "Failed to get image positions");
+            }
+        } catch (err: any) {
+            console.error("Get image positions failed:", err);
+            setError(`Failed to get image positions: ${err.message}`);
+        }
+    };
+
+    // --- SCREENSHOT FUNCTION ---
+    const handleScreenshot = async () => {
+        try {
+            if (!addOnUISdk.app.document.createRenditions) {
+                throw new Error("Renditions API is not available");
+            }
+
+            // Create rendition of current page as PNG
+            const renditionResults = await addOnUISdk.app.document.createRenditions(
+                { range: "currentPage", format: "image/png" },
+                addOnUISdk.constants.RenditionIntent.export
+            );
+            console.log("Full results:", renditionResults);
+            if (!renditionResults?.[0]?.blob || renditionResults[0].blob.size === 0) {
+                throw new Error("Rendition failed: empty or invalid blob");
+            }
+            const blob = renditionResults[0].blob;
+
+            // const blob = renditionResults[0].blob;
+            console.log("blob", blob);
+
+            // Generate filename with timestamp
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            const filename = `screenshot-${timestamp}.png`;
+
+            // Automatically save to Downloads folder using browser download
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+
+            console.log(`Screenshot saved to Downloads folder: ${filename}`);
+            setError(null);
+        } catch (err: any) {
+            console.error("Screenshot failed:", err);
+            setError(`Screenshot failed: ${err.message}`);
+        }
+    };
+
+    // --- MAIN FUNCTION ---
     const handleAdvanceSpellCheck = async () => {
         console.log("🚀 STARTING SCAN...");
         setIsProcessing(true);
@@ -183,14 +157,16 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         setRawDocText("");
 
         try {
-            // STEP 1: OCR SCAN
+            // 1. OCR SCAN (From Image)
             let ocrTxt = "";
             try {
                 if (addOnUISdk.app.document.createRenditions) {
                     const renditionResults = await addOnUISdk.app.document.createRenditions({ range: "currentPage", format: "image/png" });
                     const blob = renditionResults[0].blob;
+                    
                     const formData = new FormData();
                     formData.append("image", blob, "page.png");
+                    
                     const res = await fetch("http://localhost:3000/analyze-image", { method: "POST", body: formData });
                     if (res.ok) {
                         const data = await res.json();
@@ -198,25 +174,28 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                         setRawOcrText(ocrTxt);
                     }
                 }
-            } catch (e) { console.warn("OCR Skipped/Failed:", e); }
+            } catch (e) {
+                console.warn("OCR Skipped/Failed:", e);
+            }
 
-            // STEP 2: DOCUMENT TEXT (DISABLED TO PREVENT DUPLICATES)
-            // We intentionally skip extracting text nodes so we don't send the same text twice.
-            /* let docTxt = "";
+            // 2. DOCUMENT TEXT (From Sandbox)
+            let docTxt = "";
             try {
                 const extractionResult = await sandboxProxy.extractText();
                 if (extractionResult.success) {
                     docTxt = extractionResult.textElements.join(' ');
                     setRawDocText(docTxt);
                 }
-            } catch (e) { console.warn("Doc Text Extraction Failed:", e); }
-            */
+            } catch (e) {
+                console.warn("Doc Text Extraction Failed:", e);
+            }
 
-            // STEP 3: ANALYZE (Send ONLY OCR Text)
-            if (!ocrTxt) throw new Error("No text found in OCR layer.");
+            // 3. COMBINE & ANALYZE
+            const combinedText = `${ocrTxt}\n ${docTxt}`.trim();
 
-            // Use only the OCR result
-            const combinedText = ocrTxt.trim();
+            if (!combinedText) {
+                throw new Error("No text found in either OCR or Document Layers.");
+            }
 
             const analysisRes = await fetch("http://localhost:3000/analyze-hate", {
                 method: "POST",
@@ -225,10 +204,22 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
             });
 
             if (!analysisRes.ok) throw new Error(await analysisRes.text());
+            
             const analysisData = await analysisRes.json();
             const formatted = formatBackendResponse(analysisData);
+            
+            // Filter hateful segments for underlining
+            const hatefulSegments = formatted.segments.filter((seg: AnalyzedSegment) => seg.is_hate);
+            
+            // Call underline function in sandbox
+            try {
+                await sandboxProxy.underlineHatefulWords(hatefulSegments);
+            } catch (e) {
+                console.warn("Failed to underline hateful words:", e);
+            }
+            
             setMlResults(formatted);
-            setViewMode('analysis');
+            setActiveTab('proofread'); // Switch to proofread tab
 
         } catch (err: any) {
             console.error(err);
@@ -238,140 +229,234 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         }
     };
 
+    // Get hateful text for display
+    const hatefulText = mlResults 
+        ? mlResults.segments
+            .filter((seg: AnalyzedSegment) => seg.is_hate)
+            .map((seg: AnalyzedSegment) => seg.text)
+            .join('\n')
+        : '';
+
     return (
         <Theme system="express" scale="medium" color="light">
-            <div className="compliance-container">
-                <header className="compliance-header">
-                    <h1>ComplianceGuard Pro</h1>
-                </header>
+            <div className="pocket-legal-container">
+                <div className="pocket-legal-content">
+                    {/* Header Section */}
+                    <div className="pocket-legal-header">
+                        <div className="header-left">
+                            <div className="logo-placeholder"></div>
+                            <h1 className="app-title">Pocket Legal</h1>
+                        </div>
+                        
+                        <div className="header-bottom">
+                            <div className="header-buttons">
+                                <button 
+                                    className="refresh-button"
+                                    onClick={handleAdvanceSpellCheck} 
+                                    disabled={isProcessing}
+                                >
+                                    <svg className="refresh-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M20 11C19.7554 9.24021 18.9391 7.60966 17.6766 6.35949C16.4142 5.10933 14.7758 4.30891 13.0137 4.08155C11.2516 3.85418 9.46362 4.21248 7.9252 5.10124C6.38678 5.99001 5.18325 7.35993 4.5 9M4 5V9H8M4 13C4.24456 14.7598 5.06093 16.3903 6.32336 17.6405C7.58579 18.8907 9.22424 19.6911 10.9863 19.9184C12.7484 20.1458 14.5364 19.7875 16.0748 18.8988C17.6132 18.01 18.8168 16.6401 19.5 15M20 19V15H16" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    <span>Refresh</span>
+                                </button>
+                                <button 
+                                    className="screenshot-button"
+                                    onClick={handleScreenshot}
+                                    disabled={isProcessing}
+                                    title="Take screenshot of current page"
+                                >
+                                    <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M3 9C3 7.89543 3.89543 7 5 7H5.92963C6.59834 7 7.2228 6.6658 7.59373 6.1094L8.40627 4.8906C8.7772 4.3342 9.40166 4 10.0704 4H14C15.1046 4 16 4.89543 16 6V7M3 9V18C3 19.1046 3.89543 20 5 20H19C20.1046 20 21 19.1046 21 18V9C21 7.89543 20.1046 7 19 7H5C3.89543 7 3 7.89543 3 9Z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <circle cx="12" cy="13" r="3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    <span>Screenshot</span>
+                                </button>
+                                <button 
+                                    className="screenshot-button"
+                                    onClick={handleGetImagePositions}
+                                    disabled={isProcessing}
+                                    title="Get positions and sizes of all images"
+                                >
+                                    <svg className="screenshot-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M3 9H21" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M9 21V9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    <span>Get Images</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
 
-                <main className="compliance-content">
-                    {/* SECTION 1: SCANNER */}
-                    <div className="scanner-panel">
-                        <h2>Advance Spell Check</h2>
-                        <p>Scans images (OCR) and text layers for hate speech.</p>
+                    {/* Navigation Bar */}
+                    <div className="pocket-legal-nav-wrapper">
+                        <div className="pocket-legal-nav">
+                            <button 
+                                className={`nav-icon ${activeTab === 'copyright' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('copyright')}
+                            >
+                                <img src={copyrightIcon} alt="Copyright" />
+                            </button>
+                            <button 
+                                className={`nav-icon ${activeTab === 'proofread' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('proofread')}
+                            >
+                                <img src={proofreadIcon} alt="Proofread" />
+                            </button>
+                            <button 
+                                className={`nav-icon ${activeTab === 'legal' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('legal')}
+                            >
+                                <img src={legalIcon} alt="Legal" />
+                            </button>
+                            <button 
+                                className={`nav-icon ${activeTab === 'menu' ? 'active' : ''}`}
+                                onClick={() => setActiveTab('menu')}
+                            >
+                                <img src={menuIcon} alt="Menu" />
+                            </button>
+                        </div>
+                    </div>
 
-                        <div className="button-group">
-                            <Button size="m" onClick={handleAdvanceSpellCheck} disabled={isProcessing} variant="cta">
-                                {isProcessing ? "🔍 Scanning..." : "✨ Run Scan"}
-                            </Button>
+                    {/* Content Section */}
+                    <div className="pocket-legal-section">
+                        {/* Tab Title */}
+                        <div className="section-title">
+                            {activeTab === 'copyright' && 'Copyright'}
+                            {activeTab === 'proofread' && 'Proofread'}
+                            {activeTab === 'legal' && 'Legal'}
+                            {activeTab === 'menu' && 'Menu'}
                         </div>
 
-                        {!isProcessing && (rawOcrText || rawDocText) && (
-                            <div style={{ marginTop: "20px", borderBottom: "1px solid #ddd" }}>
-                                <button onClick={() => setViewMode('analysis')} style={{ padding: "8px 15px", marginRight: "10px", fontWeight: viewMode==='analysis'?'bold':'normal', borderBottom: viewMode==='analysis'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}>🛡️ Analysis Results</button>
-                                <button onClick={() => setViewMode('raw')} style={{ padding: "8px 15px", fontWeight: viewMode==='raw'?'bold':'normal', borderBottom: viewMode==='raw'?"2px solid blue":"none", background:"none", border:"none", cursor:"pointer"}}>📝 Raw Text Data</button>
-                            </div>
-                        )}
+                        {/* Proofread Content */}
+                        {activeTab === 'proofread' && (
+                            <div className="proofread-content">
+                                {isProcessing && (
+                                    <div className="processing-message">
+                                        🔍 Scanning document...
+                                    </div>
+                                )}
 
-                        {error && <div className="error-message" style={{color: "red", marginTop: "10px"}}>{error}</div>}
+                                {error && <div className="error-message">{error}</div>}
 
-                        {viewMode === 'analysis' && mlResults && (
-                            <div style={{ marginTop: "15px" }}>
-                                <div style={{ marginBottom: "20px", padding: "10px", borderRadius: "6px", backgroundColor: mlResults.summary.hateSpeechCount > 0 ? "#ffebee" : "#e8f5e9", color: mlResults.summary.hateSpeechCount > 0 ? "#c62828" : "#2e7d32", fontWeight: "bold", textAlign: "center" }}>
-                                    {mlResults.summary.hateSpeechCount > 0 ? `⚠️ Found ${mlResults.summary.hateSpeechCount} Flagged Item(s)` : "✅ No Hate Speech Detected"}
-                                </div>
-                                {mlResults.summary.hateSpeechCount > 0 && (
-                                    <div style={{ marginBottom: "25px", border: "1px solid #ef9a9a", borderRadius: "6px", overflow: "hidden" }}>
-                                        <div style={{ backgroundColor: "#ffebee", padding: "8px 12px", borderBottom: "1px solid #ef9a9a", fontWeight: "bold", color: "#b71c1c", fontSize: "14px" }}>🚩 Flagged Content Details</div>
-                                        <div style={{ maxHeight: "200px", overflowY: "auto", backgroundColor: "white" }}>
-                                            {mlResults.segments.filter((s: AnalyzedSegment) => s.is_hate).map((seg: AnalyzedSegment, idx: number) => (
-                                                <div key={idx} style={{ padding: "10px", borderBottom: "1px solid #eee", display: "flex", flexDirection: "column", gap: "5px" }}>
-                                                    <div style={{ fontSize: "14px", color: "#333", fontWeight: "500" }}>"{seg.text}"</div>
-                                                    <div style={{ display: "flex", gap: "10px", fontSize: "12px" }}>
-                                                        <span style={{ backgroundColor: "#ffcdd2", color: "#b71c1c", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>{seg.label}</span>
-                                                        <span style={{ color: "#666", alignSelf: "center" }}>Confidence: {(seg.confidence * 100).toFixed(1)}%</span>
-                                                    </div>
+                                {!isProcessing && mlResults && (
+                                    <>
+                                        {mlResults.summary.hateSpeechCount === 0 ? (
+                                            // Clean State
+                                            <div className="status-container clean">
+                                                <div className="status-icon clean">
+                                                    <img src={checkIcon} alt="Clean" className="check-icon" />
                                                 </div>
-                                            ))}
+                                                <p className="status-message clean">
+                                                    No hate speech or offensive language detected. Your content is clean and you are good to go!
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            // Issues Found State
+                                            <div className="status-container issues">
+                                                <div className="status-icon issues">
+                                                    <img src={cancelIcon} alt="Cancel" className="cancel-icon" />
+                                                </div>
+                                                <p className="status-message issues">
+                                                    Hate speech or offensive<br />
+                                                    language detected.<br />
+                                                    Please review your content.
+                                                </p>
+                                                <textarea 
+                                                    className="proofread-textarea"
+                                                    readOnly
+                                                    value={hatefulText}
+                                                    placeholder="Hateful content will appear here..."
+                                                    spellCheck={false}
+                                                />
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {!isProcessing && !mlResults && !error && (
+                                    <div className="status-container clean">
+                                        <div className="status-icon clean">
+                                            <img src={checkIcon} alt="Clean" className="check-icon" />
                                         </div>
+                                        <p className="status-message clean">
+                                            Click Refresh to scan your document for hate speech and offensive language.
+                                        </p>
                                     </div>
                                 )}
                             </div>
                         )}
-                        
-                        {viewMode === 'raw' && (
-                            <div style={{ marginTop: "15px" }}>
-                                <div><strong>OCR Text:</strong><div style={{ backgroundColor: "#f4f4f4", padding: "10px", fontSize: "12px" }}>{rawOcrText || "(None)"}</div></div>
-                            </div>
-                        )}
-                    </div>
 
-                    {/* SECTION 2: TEMPLATE DISCLAIMER */}
-                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
-                        <h2>⚖️ Auto Disclaimer</h2>
-                        <p>Insert localized legal text instantly.</p>
-                        <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px" }}>Language:</label>
-                                <select value={discLang} onChange={(e) => setDiscLang(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc" }}>
-                                    {Object.keys(DISCLAIMER_TEMPLATES).map(lang => (<option key={lang} value={lang}>{lang}</option>))}
-                                </select>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ display: "block", fontSize: "11px", fontWeight: "bold", marginBottom: "4px" }}>Type:</label>
-                                <select value={discType} onChange={(e) => setDiscType(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "4px", border: "1px solid #ccc" }}>
-                                    {Object.keys(DISCLAIMER_TEMPLATES["English"]).map(type => (<option key={type} value={type}>{type}</option>))}
-                                </select>
-                            </div>
-                        </div>
-                        <div style={{ padding: "10px", backgroundColor: "#f5f5f5", borderRadius: "6px", border: "1px solid #ddd", marginBottom: "15px" }}>
-                            <div style={{ fontSize: "12px", color: "#666", marginBottom: "5px" }}>Preview:</div>
-                            <textarea value={discText} onChange={(e) => setDiscText(e.target.value)} style={{ width: "100%", height: "80px", padding: "8px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc", fontFamily: "inherit", resize: "vertical" }}/>
-                        </div>
-                        <Button size="m" variant="cta" onClick={handleInsertDisclaimer} style={{ width: "100%" }}>⬇️ Insert into Document</Button>
-                    </div>
-
-                    {/* SECTION 3: SAVE SELECTION */}
-                    <div className="scanner-panel" style={{ marginTop: "40px", paddingTop: "20px", borderTop: "2px solid #e0e0e0" }}>
-                        <h2>💾 Save Selection</h2>
-                        <p>Select an image on the canvas and click below.</p>
-                        
-                        <Button 
-                            size="m" 
-                            onClick={handleSaveSelectedImage} 
-                            disabled={isSavingImage}
-                            style={{ width: "100%" }}
-                            variant="secondary"
-                        >
-                            {isSavingImage ? "Processing..." : "✂️ Crop & Prepare"}
-                        </Button>
-                        
-                        {/* THE FIX: Manual HTML Link for Download */}
-                        {downloadUrl && !isSavingImage && (
-                            <div style={{ marginTop: "15px", padding: "10px", backgroundColor: "#e3f2fd", borderRadius: "6px", textAlign: "center" }}>
-                                <div style={{ marginBottom: "8px", fontSize: "12px", color: "#0d47a1" }}>Image is ready!</div>
-                                
-                                <a 
-                                    href={downloadUrl} 
-                                    download={`extracted-image-${Date.now()}.png`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ 
-                                        display: "block",
-                                        width: "100%",
-                                        padding: "10px 0",
-                                        backgroundColor: "#0265DC", 
-                                        color: "white",
-                                        textDecoration: "none",
-                                        borderRadius: "16px",
-                                        fontWeight: "bold",
-                                        fontSize: "14px",
-                                        cursor: "pointer",
-                                        border: "none",
-                                        boxSizing: "border-box"
-                                    }}
-                                >
-                                    ⬇️ Save to Computer
-                                </a>
-
-                                <div style={{ marginTop: "10px", fontSize: "11px", color: "#666" }}>
-                                    (If download doesn't start, right-click button &gt; "Save Link As")
+                        {/* Legal Tab - Auto Disclaimer */}
+                        {activeTab === 'legal' && (
+                            <div className="auto-disclaimer-content">
+                                <div className="disclaimer-header">
+                                    <h3 className="disclaimer-title">Auto - Disclaimer</h3>
+                                    <button 
+                                        className="copy-button"
+                                        onClick={async () => {
+                                            try {
+                                                await navigator.clipboard.writeText(disclaimerText);
+                                                // Visual feedback - you could add a toast notification here
+                                                console.log("Disclaimer copied to clipboard");
+                                            } catch (err) {
+                                                console.error("Failed to copy:", err);
+                                                // Fallback for older browsers
+                                                const textArea = document.createElement("textarea");
+                                                textArea.value = disclaimerText;
+                                                textArea.style.position = "fixed";
+                                                textArea.style.left = "-999999px";
+                                                document.body.appendChild(textArea);
+                                                textArea.focus();
+                                                textArea.select();
+                                                try {
+                                                    document.execCommand('copy');
+                                                    console.log("Disclaimer copied to clipboard (fallback)");
+                                                } catch (fallbackErr) {
+                                                    console.error("Fallback copy failed:", fallbackErr);
+                                                }
+                                                document.body.removeChild(textArea);
+                                            }
+                                        }}
+                                        title="Copy to clipboard"
+                                    >
+                                        <img src={copyIcon} alt="Copy" className="copy-icon" />
+                                    </button>
                                 </div>
+                                <div className="disclaimer-language-selector">
+                                    <label htmlFor="disclaimer-language" className="language-label">Language:</label>
+                                    <select
+                                        id="disclaimer-language"
+                                        className="language-dropdown"
+                                        value={disclaimerLanguage}
+                                        onChange={(e) => setDisclaimerLanguage(e.target.value)}
+                                    >
+                                        {Object.keys(disclaimerTemplates).map((lang) => (
+                                            <option key={lang} value={lang}>
+                                                {lang}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <textarea
+                                    className="disclaimer-textarea"
+                                    value={disclaimerText}
+                                    onChange={(e) => setDisclaimerText(e.target.value)}
+                                    placeholder="Enter your disclaimer text here..."
+                                    spellCheck={false}
+                                />
+                            </div>
+                        )}
+
+                        {/* Other Tabs Content Placeholder */}
+                        {activeTab !== 'proofread' && activeTab !== 'legal' && (
+                            <div className="tab-placeholder">
+                                <p>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} section coming soon...</p>
                             </div>
                         )}
                     </div>
-                </main>
+                </div>
             </div>
         </Theme>
     );
