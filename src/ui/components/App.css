@@ -47,6 +47,12 @@
   justify-content: center;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .logo-placeholder {
   width: 24px;
   height: 24px;
@@ -92,6 +98,40 @@
 }
 
 .refresh-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.screenshot-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  min-width: 140px;
+  height: 44px;
+  background-color: #000000;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 100px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'Ubuntu', sans-serif;
+  transition: background-color 0.2s ease;
+}
+
+.screenshot-button:hover:not(:disabled) {
+  background-color: #333333;
+}
+
+.screenshot-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.screenshot-icon {
   width: 16px;
   height: 16px;
   display: block;
