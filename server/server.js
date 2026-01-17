@@ -105,7 +105,6 @@ app.post("/analyze-hate", async (req, res) => {
                 const badPhrases = hateSegments.map(s => s.text).join(" | ");
 
                 console.log(`⚠️ Hate Content Found: "${badPhrases}". Asking Gemini 2.5 Flash to sanitize...`);
-                console.log(badPhrases);
                 const prompt = `
                     I have a text document. 
                     Context: "${text}"

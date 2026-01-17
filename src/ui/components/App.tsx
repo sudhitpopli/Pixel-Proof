@@ -183,7 +183,7 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
         setRawDocText("");
 
         try {
-            // OCR SCAN
+            // STEP 1: OCR SCAN
             let ocrTxt = "";
             try {
                 if (addOnUISdk.app.document.createRenditions) {
@@ -200,8 +200,9 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                 }
             } catch (e) { console.warn("OCR Skipped/Failed:", e); }
 
-            // DOCUMENT TEXT
-            let docTxt = "";
+            // STEP 2: DOCUMENT TEXT (DISABLED TO PREVENT DUPLICATES)
+            // We intentionally skip extracting text nodes so we don't send the same text twice.
+            /* let docTxt = "";
             try {
                 const extractionResult = await sandboxProxy.extractText();
                 if (extractionResult.success) {
@@ -209,10 +210,13 @@ const App: React.FC<AppProps> = ({ addOnUISdk, sandboxProxy }) => {
                     setRawDocText(docTxt);
                 }
             } catch (e) { console.warn("Doc Text Extraction Failed:", e); }
+            */
 
-            // COMBINE & ANALYZE
-            const combinedText = `${ocrTxt}\n ${docTxt}`.trim();
-            if (!combinedText) throw new Error("No text found in either OCR or Document Layers.");
+            // STEP 3: ANALYZE (Send ONLY OCR Text)
+            if (!ocrTxt) throw new Error("No text found in OCR layer.");
+
+            // Use only the OCR result
+            const combinedText = ocrTxt.trim();
 
             const analysisRes = await fetch("http://localhost:3000/analyze-hate", {
                 method: "POST",

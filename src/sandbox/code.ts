@@ -34,30 +34,9 @@ import {
 // =========================================================================
 
 async function extractText() {
-    try {
-        const allText: string[] = [];
-        const doc = editor.documentRoot;
-        for (const page of doc.pages) {
-            for (const artboard of page.artboards) {
-                const children = Array.from(artboard.allChildren);
-                for (const node of children) {
-                    if (node.type === "Text") {
-                        try {
-                            const textNode = node as any;
-                            if (textNode.fullContent && textNode.fullContent.text) {
-                                allText.push(textNode.fullContent.text);
-                            }
-                        } catch (error) {
-                            console.error(`Error extracting text:`, error);
-                        }
-                    }
-                }
-            }
-        }
-        return { success: true, textElements: allText, count: allText.length };
-    } catch (error) {
-        return { success: false, textElements: [], count: 0, error: String(error) };
-    }
+    // MODIFIED: Manual text extraction disabled to prevent duplicates with OCR.
+    // Returns empty so the app relies only on the OCR scan.
+    return { success: true, textElements: [], count: 0 };
 }
 
 async function extractTextWithOCR(): Promise<ExtractionSummary> {
@@ -105,11 +84,15 @@ async function analyzeTextForHateSpeech(text: string): Promise<HateSpeechResult>
 
 async function analyzeDocumentForHateSpeech(): Promise<{ success: boolean; results: MLAnalysisResult[]; summary?: any; error?: string }> {
     try {
-        const extractionResult = await extractAllText(false);
+        const extractionResult = await extractTextFromImagesOnly();
         if (!extractionResult.success || extractionResult.results.length === 0) {
             return { success: false, results: [], error: 'No text found in document' };
         }
-        const textSegments = extractionResult.results.map(r => ({ text: r.text, source: r.source, id: r.nodeId }));
+        const textSegments = extractionResult.results.map(r => ({ 
+            text: r.text, 
+            source: 'image', // explicit source
+            id: r.nodeId || 'ocr-segment' 
+        }));
         const analysisResults = await analyzeTextSegments(textSegments);
         const hateSpeechCount = analysisResults.filter(r => r.result.isHateSpeech).length;
         const totalConfidence = analysisResults.reduce((sum, r) => sum + r.result.confidence, 0);
